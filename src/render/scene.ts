@@ -2,7 +2,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { SystemState } from '../sim/types';
 import { Bodies, BODY_COLORS } from './bodies';
+import { DropLines } from './dropLines';
+import { PlaneFrame, snapDirection, updatePlaneFrame } from './frame';
+import type { PlaneMode, SnapView } from './frame';
+import { AxesGizmo } from './gizmo';
+import { GridPlane } from './gridPlane';
 import { Trail } from './trails';
+import { VectorArrows } from './vectors';
 
 export type CameraMode = 'free' | 'com' | 'body0' | 'body1' | 'body2';
 
@@ -14,13 +20,48 @@ export interface ViewSettings {
   trailLength: number;
   /** Fade exponent: a trail's alpha is (1 - age)^trailFade. */
   trailFade: number;
+  /**
+   * 'focus': trails are drawn relative to what the camera follows, so with a body in focus the
+   * others trace their orbits about it (a moon circles its planet, not a long wave along the
+   * planet's orbit). 'world': in the fixed frame. Free orbit always uses the world.
+   */
+  trailFrame: 'focus' | 'world';
+  /** The floor grid, on the reference plane. */
   showGrid: boolean;
+  /** Two more grids standing on the floor, behind the system as seen from the camera: a plot box. */
+  showWalls: boolean;
+  /** The reference plane: z = 0, or the plane perpendicular to the angular momentum. */
+  planeMode: PlaneMode;
+  /** A line from each body down to the plane, and a dot where it lands. */
+  showDropLines: boolean;
+  /** Each trail flattened onto the plane. */
+  showShadows: boolean;
+  /** The x, y, z indicator in the corner. */
+  showAxes: boolean;
+  /** Arrows from each body along its velocity and its acceleration, with logarithmic lengths. */
+  showVelocity: boolean;
+  showAcceleration: boolean;
   /** Multiplies the displayed body radius. */
   bodyScale: number;
 }
 
 export function defaultSettings(): ViewSettings {
-  return { cameraMode: 'com', showTrails: true, trailLength: 4000, trailFade: 1.5, showGrid: true, bodyScale: 1 };
+  return {
+    cameraMode: 'com',
+    showTrails: true,
+    trailLength: 4000,
+    trailFade: 1.5,
+    trailFrame: 'focus',
+    showGrid: true,
+    showWalls: false,
+    planeMode: 'xy',
+    showDropLines: true,
+    showShadows: true,
+    showAxes: true,
+    showVelocity: false,
+    showAcceleration: false,
+    bodyScale: 1,
+  };
 }
 
 /** Smallest displayed body radius, in CSS pixels. */
@@ -36,6 +77,11 @@ const TRAIL_DETAIL = 0.003;
  */
 const REBASE_DISTANCE = 2000;
 const MAX_FRAME_SECONDS = 0.1;
+const NO_OFFSET = new Float64Array(3);
+/** How far the floor grid reaches from its center, and how far out and wide the walls are, in grid cells. */
+const FLOOR_CELLS = 16;
+const WALL_OFFSET_CELLS = 6;
+const WALL_CELLS = 10;
 
 /**
  * The Float64 world point that sits at the render origin (plan §7.6). Everything handed to the
@@ -100,14 +146,25 @@ export class SceneView {
   private readonly scene = new THREE.Scene();
   private readonly bodies = new Bodies();
   private readonly trails: Trail[];
-  private readonly grid: THREE.GridHelper;
+  private readonly floor = new GridPlane(0x5b7db8, 1);
+  /** The wall perpendicular to e1, and the one perpendicular to e2. */
+  private readonly walls = [new GridPlane(0x466694, 0.75), new GridPlane(0x466694, 0.75)];
+  private readonly dropLines = new DropLines();
+  private readonly arrows = new VectorArrows();
+  private readonly gizmo: AxesGizmo;
+  private readonly light = new THREE.DirectionalLight(0xffffff, 2.2);
   private readonly resizeObserver: ResizeObserver;
+  private readonly frame3d = new PlaneFrame();
+  private readonly scratch = new Float64Array(3);
+  /** Where trail samples are measured from: the focus when trails follow it, else the world origin. */
+  private readonly trailOrigin = new Float64Array(3);
+  private trailedMode: CameraMode | null = null;
+  private trailedFrame: ViewSettings['trailFrame'] | null = null;
 
   private height = 1;
   private needsResize = true;
   private systemScale = 1;
   private clipDistance = 0;
-  private gridCell = 0;
 
   private frame: ((dtSeconds: number) => SystemState) | null = null;
   private rafId = 0;
@@ -133,10 +190,10 @@ export class SceneView {
     this.controls.maxDistance = 1e12;
 
     this.trails = BODY_COLORS.map((color) => new Trail(this.settings.trailLength, color));
-    this.grid = new THREE.GridHelper(20, 20, 0x2b3a55, 0x18212f);
-    this.grid.rotation.x = Math.PI / 2; // GridHelper lies in xz; the orbital plane is xy
-    this.scene.add(this.grid, this.bodies.group);
-    for (const trail of this.trails) this.scene.add(trail.line);
+    this.scene.add(this.floor.mesh, ...this.walls.map((wall) => wall.mesh), this.bodies.group, this.dropLines.group, this.arrows.group);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 1.3), this.light);
+    for (const trail of this.trails) this.scene.add(trail.line, trail.shadow);
+    this.gizmo = new AxesGizmo(host);
 
     this.resizeObserver = new ResizeObserver(() => {
       this.needsResize = true;
@@ -155,7 +212,9 @@ export class SceneView {
 
   /** Stores a trail sample for each body. Call after each simulation step (or every few). */
   recordSample(s: SystemState): void {
-    for (let i = 0; i < 3; i++) this.trails[i].push(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]);
+    const o = this.trailOrigin;
+    if (!this.trailsFollowFocus(s)) o.fill(0);
+    for (let i = 0; i < 3; i++) this.trails[i].push(s.x[3 * i] - o[0], s.x[3 * i + 1] - o[1], s.x[3 * i + 2] - o[2]);
   }
 
   clearTrails(): void {
@@ -172,6 +231,19 @@ export class SceneView {
     this.settings.cameraMode = mode;
   }
 
+  /** Moves the camera to look at the focus from a standard direction relative to the reference plane, keeping its distance. */
+  snapCamera(view: SnapView): void {
+    const target = this.controls.target;
+    const distance = this.camera.position.distanceTo(target);
+    snapDirection(view, this.frame3d, this.scratch);
+    this.camera.position.set(
+      target.x + this.scratch[0] * distance,
+      target.y + this.scratch[1] * distance,
+      target.z + this.scratch[2] * distance,
+    );
+    this.controls.update();
+  }
+
   /** Draws the system: the floating origin, then bodies, trails and grid relative to it. */
   renderState(s: SystemState): void {
     const t0 = performance.now();
@@ -182,6 +254,12 @@ export class SceneView {
 
     // Put the focus at the render origin, and keep the camera orbiting it.
     this.origin.follow(mode, s.x, s.m);
+    // Trails recorded in one frame make no sense in another: start them over when it changes.
+    if (mode !== this.trailedMode || settings.trailFrame !== this.trailedFrame) {
+      this.trailedMode = mode;
+      this.trailedFrame = settings.trailFrame;
+      this.clearTrails();
+    }
     this.controls.enablePan = mode === 'free';
     this.controls.update();
     if (mode === 'free') {
@@ -199,6 +277,11 @@ export class SceneView {
       this.camera.updateProjectionMatrix();
     }
 
+    const frame = this.frame3d;
+    updatePlaneFrame(settings.planeMode, s.x, s.v, s.m, frame);
+    const planeD = frame.offsetFrom(o);
+    this.light.position.set(-0.5, 0.8, 1).applyQuaternion(this.camera.quaternion);
+
     const worldPerPixel = (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * d) / this.height;
     this.bodies.update(
       s.x,
@@ -208,20 +291,31 @@ export class SceneView {
       MIN_BODY_PIXELS * worldPerPixel,
     );
 
+    // Trails that follow the focus are stored relative to it, so they are drawn relative to the render origin.
+    const toFocus = this.trailsFollowFocus(s);
+    const to = toFocus ? NO_OFFSET : o;
+    const tip = this.trailOrigin;
+    if (!toFocus) tip.fill(0);
     for (let i = 0; i < 3; i++) {
       const trail = this.trails[i];
       trail.line.visible = settings.showTrails;
+      trail.shadow.visible = settings.showTrails && settings.showShadows;
       if (!settings.showTrails) continue;
       trail.minStep = TRAIL_DETAIL * d;
       trail.fade = settings.trailFade;
-      trail.rebaseIfFar(o[0], o[1], o[2], REBASE_DISTANCE * d);
-      trail.place(o[0], o[1], o[2]);
-      trail.setTip(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]);
+      trail.rebaseIfFar(to[0], to[1], to[2], REBASE_DISTANCE * d);
+      trail.place(to[0], to[1], to[2]);
+      trail.setPlane(frame.n[0], frame.n[1], frame.n[2], planeD);
+      trail.setTip(s.x[3 * i] - tip[0], s.x[3 * i + 1] - tip[1], s.x[3 * i + 2] - tip[2]);
       trail.flush();
     }
 
-    this.updateGrid(d);
+    this.updateGrids(d);
+    this.dropLines.visible = settings.showDropLines;
+    if (settings.showDropLines) this.dropLines.update(s.x, o, frame, this.renderer.getPixelRatio());
+    this.arrows.update(s, o, d, settings.showVelocity, settings.showAcceleration);
     this.renderer.render(this.scene, this.camera);
+    this.gizmo.render(this.renderer, this.camera, frame, settings.showAxes);
     this.stats.renderMs = performance.now() - t0;
   }
 
@@ -250,7 +344,12 @@ export class SceneView {
     this.controls.dispose();
     for (const trail of this.trails) trail.dispose();
     this.bodies.dispose();
-    this.grid.geometry.dispose();
+    this.floor.dispose();
+    for (const wall of this.walls) wall.dispose();
+    this.dropLines.dispose();
+    this.arrows.dispose();
+    this.gizmo.dispose();
+    this.light.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -273,6 +372,11 @@ export class SceneView {
     }
   };
 
+  /** True, with the focus in trailOrigin, when trails are stored relative to what the camera follows. */
+  private trailsFollowFocus(s: SystemState): boolean {
+    return this.settings.trailFrame === 'focus' && focusPoint(this.settings.cameraMode, s.x, s.m, this.trailOrigin);
+  }
+
   private resize(): void {
     const w = Math.max(1, this.host.clientWidth);
     const h = Math.max(1, this.host.clientHeight);
@@ -285,18 +389,43 @@ export class SceneView {
   }
 
   /**
-   * A grid in the plane through the focus, parallel to xy, whose cells are powers of ten and
-   * whose lines are snapped in world space so they stay put as the focus moves.
+   * The floor on the reference plane, and the two walls. Cells are powers of ten, and the lines
+   * are fixed in world space: the shader is handed where the quad is in world coordinates, so
+   * they stay put as the focus moves.
    */
-  private updateGrid(d: number): void {
-    this.grid.visible = this.settings.showGrid;
-    if (!this.settings.showGrid) return;
+  private updateGrids(d: number): void {
+    const { showGrid, showWalls } = this.settings;
+    this.floor.visible = showGrid;
+    for (const wall of this.walls) wall.visible = showWalls;
+    if (!showGrid && !showWalls) return;
+
     const cell = Math.pow(10, Math.round(Math.log10(d / 5)));
-    if (cell !== this.gridCell) {
-      this.gridCell = cell;
-      this.grid.scale.setScalar(cell);
-    }
+    const { e1, e2, n } = this.frame3d;
     const o = this.origin.world;
-    this.grid.position.set(Math.round(o[0] / cell) * cell - o[0], Math.round(o[1] / cell) * cell - o[1], 0);
+    const center = this.scratch;
+
+    if (showGrid) {
+      // Centered on the point of the plane nearest the render origin.
+      const s = this.frame3d.offsetFrom(o);
+      center[0] = s * n[0];
+      center[1] = s * n[1];
+      center[2] = s * n[2];
+      this.floor.place(e1, e2, n, center, o, cell, FLOOR_CELLS * cell);
+    }
+    if (showWalls) {
+      const cam = this.camera.position;
+      for (let k = 0; k < 2; k++) {
+        const along = k === 0 ? e1 : e2; // the wall's normal
+        const across = k === 0 ? e2 : e1;
+        // On the far side of the focus from the camera, on a world grid line.
+        const side = along[0] * cam.x + along[1] * cam.y + along[2] * cam.z > 0 ? -1 : 1;
+        const world = along[0] * o[0] + along[1] * o[1] + along[2] * o[2];
+        const offset = Math.round((world + side * WALL_OFFSET_CELLS * cell) / cell) * cell - world;
+        center[0] = offset * along[0];
+        center[1] = offset * along[1];
+        center[2] = offset * along[2];
+        this.walls[k].place(across, n, along, center, o, cell, WALL_CELLS * cell);
+      }
+    }
   }
 }

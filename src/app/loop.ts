@@ -48,7 +48,7 @@ export class SimLoop {
    * Advances the simulation by dtSeconds of real time at the set speed (when running) within
    * the frame budget, and returns the state to draw. If the budget runs out, the backlog is
    * dropped rather than caught up later (plan §5), and stats.achieved says how far behind.
-   * A failed integration pauses.
+   * A failed integration, or an encounter the simulation was asked to stop at, pauses.
    */
   frame(dtSeconds: number): SystemState {
     const { sim, settings, stats } = this;
@@ -67,7 +67,7 @@ export class SimLoop {
       this.tTarget += sim.direction * requested;
       const result = sim.advanceTo(this.tTarget, wall0 + settings.budgetMs);
       if (result.status !== 'reached') this.tTarget = sim.state.t;
-      if (result.status === 'failed') settings.running = false;
+      if (result.status === 'failed' || result.status === 'event') settings.running = false;
 
       if (requested > 0) {
         const progress = Math.min(Math.max(((sim.state.t - start) * sim.direction) / requested, 0), 1);

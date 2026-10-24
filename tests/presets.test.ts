@@ -20,7 +20,7 @@ describe('presetState', () => {
   it('carries z, which is what makes a system 3D', () => {
     const preset: Preset = {
       ...FIGURE_EIGHT,
-      bodies: FIGURE_EIGHT.bodies.map((b, i) => ({ ...b, x: [b.x[0], b.x[1], i], v: [b.v[0], b.v[1], 0.1 * i] })),
+      bodies: FIGURE_EIGHT.bodies!.map((b, i) => ({ ...b, x: [b.x[0], b.x[1], i], v: [b.v[0], b.v[1], 0.1 * i] })),
     };
     const s = presetState(preset);
     expect([s.x[2], s.x[5], s.x[8]]).toEqual([0, 1, 2]);
@@ -28,7 +28,7 @@ describe('presetState', () => {
   });
 
   it('rejects anything but three bodies', () => {
-    expect(() => presetState({ ...FIGURE_EIGHT, bodies: FIGURE_EIGHT.bodies.slice(0, 2) })).toThrow(RangeError);
+    expect(() => presetState({ ...FIGURE_EIGHT, bodies: FIGURE_EIGHT.bodies!.slice(0, 2) })).toThrow(RangeError);
   });
 });
 
@@ -60,10 +60,9 @@ describe('figure-eight preset', () => {
     expect(FIGURE_EIGHT.verified).toBe(true);
   });
 
-  it('recommends settings that run: a period every 8 s, 4000 steps per period', () => {
+  it('recommends settings that run: leapfrog at 4000 steps per period', () => {
     const { recommended, period } = FIGURE_EIGHT;
     expect(recommended.integrator).toBe('leapfrog');
     expect(period! / recommended.dt!).toBeCloseTo(4000, 9);
-    expect(recommended.speed * 8).toBeCloseTo(period!, 12);
   });
 });

@@ -108,6 +108,8 @@ export interface Reference {
   P: Float64Array;
   /** T_char: the declared period of the preset if it has one, else the shortest pair period. */
   period: number;
+  /** The size of the system when the reference was taken (systemSize): escape is measured in multiples of it. */
+  size: number;
 }
 
 /**
@@ -115,7 +117,7 @@ export interface Reference {
  *
  * Lscale is sum m |x||v|, because many presets (figure-eight, Šuvakov) have L = 0 and a
  * relative error would be undefined. Starting from rest (Pythagorean) makes that zero too, so
- * the velocity is then taken from the energy: v ~ sqrt(2 (K + |U|) / M).
+ * the velocity is then characteristicSpeed().
  */
 export function createReference(s: SystemState, period?: number): Reference {
   const d = createDiagnostics();
@@ -131,7 +133,7 @@ export function createReference(s: SystemState, period?: number): Reference {
     sumMx += s.m[i] * r;
   }
   const M = s.m[0] + s.m[1] + s.m[2];
-  if (!(Lscale > 0) && M > 0) Lscale = sumMx * Math.sqrt((2 * parts) / M);
+  if (!(Lscale > 0) && M > 0) Lscale = sumMx * characteristicSpeed(s);
 
   return {
     energy: d.energy,
@@ -140,6 +142,7 @@ export function createReference(s: SystemState, period?: number): Reference {
     Lscale: Lscale > 0 ? Lscale : 1,
     P: d.P,
     period: period ?? characteristicTime(s),
+    size: systemSize(s),
   };
 }
 
@@ -156,6 +159,18 @@ export function angularMomentumError(d: Diagnostics, ref: Reference): number {
 /** |P - P0|. Absolute: P0 is about zero, so there is nothing to divide by. */
 export function momentumError(d: Diagnostics, ref: Reference): number {
   return Math.hypot(d.P[0] - ref.P[0], d.P[1] - ref.P[1], d.P[2] - ref.P[2]);
+}
+
+/**
+ * A speed typical of the system, sqrt(2 (K + |U|) / M), from its energy: it is not zero for a
+ * system at rest. 1 if the bodies have no mass or no energy.
+ */
+export function characteristicSpeed(s: SystemState): number {
+  const d = createDiagnostics();
+  measure(s, d);
+  const M = s.m[0] + s.m[1] + s.m[2];
+  const v = M > 0 ? Math.sqrt((2 * (d.kinetic + Math.abs(d.potential))) / M) : 0;
+  return v > 0 ? v : 1;
 }
 
 /**

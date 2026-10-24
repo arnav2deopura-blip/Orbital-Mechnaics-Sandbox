@@ -1,27 +1,46 @@
 import * as THREE from 'three';
 
 // Vertex age comes from gl_VertexID and two uniforms, so fading never rewrites an attribute.
+//
+// With SHADOW defined the same vertices are flattened onto the reference plane (the trail's
+// shadow, a depth cue for z). The vertices are relative to the line's anchor, so uBase, the
+// anchor in render space, brings them to render space first, where the plane is n.p = uPlaneD.
 const VERTEX_SHADER = /* glsl */ `
   uniform float uStart;
   uniform float uCount;
+  #ifdef SHADOW
+  uniform vec3 uBase;
+  uniform vec3 uNormal;
+  uniform float uPlaneD;
+  #endif
   varying float vAge;
   void main() {
     // 0 at the newest vertex of the drawn window, 1 at the oldest.
     float newest = uStart + uCount - 1.0;
     vAge = clamp((newest - float(gl_VertexID)) / max(uCount - 1.0, 1.0), 0.0, 1.0);
+    #ifdef SHADOW
+    vec3 r = position + uBase;
+    r -= uNormal * (dot(uNormal, r) - uPlaneD);
+    gl_Position = projectionMatrix * viewMatrix * vec4(r, 1.0);
+    #else
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    #endif
   }
 `;
 
 const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColor;
   uniform float uFade;
+  uniform float uAlpha;
   varying float vAge;
   void main() {
-    gl_FragColor = vec4(uColor, pow(1.0 - vAge, uFade));
+    gl_FragColor = vec4(uColor, uAlpha * pow(1.0 - vAge, uFade));
     #include <colorspace_fragment>
   }
 `;
+
+/** A shadow is this much fainter than the trail it is cast by. */
+const SHADOW_ALPHA = 0.3;
 
 /** A pending upload span of the position attribute, in floats. Reused every frame. */
 interface UpdateRange {
@@ -46,12 +65,17 @@ const MAX_RANGES = 5;
  * small numbers ever reach the GPU, however far from the world origin the orbit is. If the
  * view's focus drifts far from the anchor, rebaseIfFar() re-anchors the stored vertices.
  *
+ * Shadow. A second line over the same vertices, flattened onto the reference plane by its
+ * vertex shader (setPlane()). It costs a draw call and no extra memory or uploads.
+ *
  * Live tip. setTip() writes the interpolated body position into the first vertex past the
  * stored run, which the next stored sample overwrites anyway, so the line always reaches the
  * body without a stored point per frame.
  */
 export class Trail {
   readonly line: THREE.Line;
+  /** The same trail projected onto the reference plane. Hidden by setting shadow.visible = false. */
+  readonly shadow: THREE.Line;
   /** World point (Float64) the vertices are relative to. Set by the first sample. */
   readonly anchor = new Float64Array(3);
   /** A sample closer than this to the last stored one is skipped. */
@@ -61,6 +85,7 @@ export class Trail {
   private positions: Float32Array;
   private attribute: THREE.BufferAttribute;
   private readonly material: THREE.ShaderMaterial;
+  private readonly shadowMaterial: THREE.ShaderMaterial;
 
   /** Slot the next sample goes to. */
   private head = 0;
@@ -86,12 +111,27 @@ export class Trail {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', this.attribute);
     geometry.setDrawRange(0, 0);
+    const uniforms = (alpha: number): Record<string, THREE.IUniform> => ({
+      uColor: { value: new THREE.Color(color) },
+      uStart: { value: 0 },
+      uCount: { value: 0 },
+      uFade: { value: 1.5 },
+      uAlpha: { value: alpha },
+    });
     this.material = new THREE.ShaderMaterial({
+      uniforms: uniforms(1),
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: FRAGMENT_SHADER,
+      transparent: true,
+      depthWrite: false,
+    });
+    this.shadowMaterial = new THREE.ShaderMaterial({
+      defines: { SHADOW: '' },
       uniforms: {
-        uColor: { value: new THREE.Color(color) },
-        uStart: { value: 0 },
-        uCount: { value: 0 },
-        uFade: { value: 1.5 },
+        ...uniforms(SHADOW_ALPHA),
+        uBase: { value: new THREE.Vector3() },
+        uNormal: { value: new THREE.Vector3(0, 0, 1) },
+        uPlaneD: { value: 0 },
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
@@ -99,7 +139,8 @@ export class Trail {
       depthWrite: false,
     });
     this.line = new THREE.Line(geometry, this.material);
-    this.line.frustumCulled = false; // the bounding sphere would be computed from stale vertices
+    this.shadow = new THREE.Line(geometry, this.shadowMaterial);
+    for (const line of [this.line, this.shadow]) line.frustumCulled = false; // the bounding sphere would be computed from stale vertices
   }
 
   /** Samples currently stored. */
@@ -114,6 +155,7 @@ export class Trail {
   /** How quickly the trail fades toward its oldest end: alpha = (1 - age)^fade. */
   set fade(value: number) {
     this.material.uniforms.uFade.value = value;
+    this.shadowMaterial.uniforms.uFade.value = value;
   }
 
   /**
@@ -188,8 +230,10 @@ export class Trail {
     const start = full ? this.head : 0;
     const count = drawn < 2 ? 0 : drawn;
     this.line.geometry.setDrawRange(start, count);
-    this.material.uniforms.uStart.value = start;
-    this.material.uniforms.uCount.value = count;
+    for (const material of [this.material, this.shadowMaterial]) {
+      material.uniforms.uStart.value = start;
+      material.uniforms.uCount.value = count;
+    }
 
     if (everything || this.rangeCount > 0) attribute.needsUpdate = true;
     this.dirtyAll = false;
@@ -200,6 +244,16 @@ export class Trail {
   /** Puts the line at anchor - origin, subtracted in Float64 (the floating origin). */
   place(originX: number, originY: number, originZ: number): void {
     this.line.position.set(this.anchor[0] - originX, this.anchor[1] - originY, this.anchor[2] - originZ);
+    (this.shadowMaterial.uniforms.uBase.value as THREE.Vector3).copy(this.line.position);
+  }
+
+  /**
+   * The reference plane for the shadow, in render space: unit normal n and the plane n.p = d.
+   * Call after place(); the shadow follows the same vertices as the line.
+   */
+  setPlane(nx: number, ny: number, nz: number, d: number): void {
+    (this.shadowMaterial.uniforms.uNormal.value as THREE.Vector3).set(nx, ny, nz);
+    this.shadowMaterial.uniforms.uPlaneD.value = d;
   }
 
   /**
@@ -259,6 +313,7 @@ export class Trail {
     geometry.setAttribute('position', this.attribute);
     this.line.geometry.dispose();
     this.line.geometry = geometry;
+    this.shadow.geometry = geometry;
     this.head = keep === next ? 0 : keep;
     this.count = keep;
     this.pendCount = 0;
@@ -268,6 +323,7 @@ export class Trail {
   dispose(): void {
     this.line.geometry.dispose();
     this.material.dispose();
+    this.shadowMaterial.dispose();
   }
 
   /** Slot s of the 2N-vertex buffer, relative to the anchor. The Float64 subtraction happens here. */

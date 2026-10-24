@@ -17,6 +17,11 @@
         position: fixed;
         inset: 0;
       }
+      /* The panel has many folders: let it scroll rather than run off the screen. */
+      .tp-dfwv {
+        max-height: calc(100vh - 16px);
+        overflow-y: auto;
+      }
     </style>
   </head>
   <body>

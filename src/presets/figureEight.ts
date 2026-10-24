@@ -18,7 +18,7 @@ export const FIGURE_EIGHT: Preset = {
     { name: 'Body 3', m: 1, x: [0, 0, 0], v: v3 },
   ],
   period: PERIOD,
-  recommended: { integrator: 'leapfrog', dt: PERIOD / 4000, speed: PERIOD / 8 }, // one period every 8 s
+  recommended: { integrator: 'leapfrog', dt: PERIOD / 4000 },
   source: 'Moore 1993, PRL 70, 3675; Chenciner & Montgomery 2000, Ann. Math. 152',
   verified: true,
 };

@@ -1,6 +1,7 @@
 import { shiftToComFrame } from './coords';
 import { createDiagnostics, createReference, measure } from './diagnostics';
 import type { Diagnostics, Reference } from './diagnostics';
+import { minSeparationSquared } from './events';
 import { createIntegrator } from './integrators';
 import { IAS15 } from './integrators/ias15';
 import type { Integrator, IntegratorId, IntegratorParams } from './integrators/types';
@@ -30,11 +31,12 @@ export interface LoadOptions {
 }
 
 /**
- * 'reached': the state is at or just past tTarget. 'budget': the deadline came first. 'failed':
- * a step produced NaN or Inf (or could not be taken), the state was put back, and failure says why.
+ * 'reached': the state is at or just past tTarget. 'budget': the deadline came first. 'event':
+ * a close encounter stopped the run, as asked. 'failed': a step produced NaN or Inf (or could
+ * not be taken), the state was put back, and failure says why.
  */
 export interface AdvanceResult {
-  status: 'reached' | 'budget' | 'failed';
+  status: 'reached' | 'budget' | 'event' | 'failed';
   steps: number;
 }
 
@@ -62,12 +64,24 @@ export class Simulation {
   revision = 0;
   /** Why integration stopped, or null. Cleared by load(), reset() and setIntegrator(). */
   failure: string | null = null;
+  /**
+   * Close encounter (plan §7.5): when two bodies come within this distance, `encounter` is set to
+   * a description, and the run stops if `stopOnEncounter`. 0 turns it off. Checked after every
+   * step, and only on entering the encounter, not on every step spent inside it.
+   */
+  encounterRadius = 0;
+  stopOnEncounter = false;
+  /** The latest encounter, or null. Cleared by load() and reset(). */
+  encounter: string | null = null;
 
   /** What reset() returns to: the state at the last load(). */
   private readonly baseline = createState();
   private dir: 1 | -1 = 1;
   /** Whether the integrator's dense output describes the step from prev to state. */
   private denseValid = false;
+  /** Inside an encounter: it ends when the bodies are 20% beyond the radius, so one pass is one event. */
+  private inEncounter = false;
+  private stopRequested = false;
   private readonly clock: () => number;
   private readonly result: AdvanceResult = { status: 'reached', steps: 0 };
 
@@ -139,7 +153,9 @@ export class Simulation {
 
   /** One step whatever the target, for the single-step button. False if it failed. */
   step(): boolean {
-    return this.failure === null && this.takeStep();
+    const ok = this.failure === null && this.takeStep();
+    this.stopRequested = false; // a single step is already a stop
+    return ok;
   }
 
   /**
@@ -168,6 +184,11 @@ export class Simulation {
         break;
       }
       steps++;
+      if (this.stopRequested) {
+        this.stopRequested = false;
+        result.status = 'event';
+        break;
+      }
     }
     result.steps = steps;
     return result;
@@ -219,8 +240,22 @@ export class Simulation {
     }
     this.counters.stepCount++;
     this.denseValid = this.integrator.dense !== undefined;
+    if (this.encounterRadius > 0) this.checkEncounter();
     this.onStep?.(state);
     return true;
+  }
+
+  private checkEncounter(): void {
+    const radius = this.encounterRadius;
+    const r2 = minSeparationSquared(this.state.x);
+    if (r2 < radius * radius) {
+      if (this.inEncounter) return;
+      this.inEncounter = true;
+      this.encounter = `close encounter at t=${this.state.t.toPrecision(6)}, separation ${Math.sqrt(r2).toPrecision(3)}`;
+      if (this.stopOnEncounter) this.stopRequested = true;
+    } else if (r2 > 1.44 * radius * radius) {
+      this.inEncounter = false;
+    }
   }
 
   /** Re-initializes the integrator on the current state, without touching the reference. */
@@ -228,6 +263,9 @@ export class Simulation {
     this.integrator.init(this.state, this.params);
     this.integrator.setDirection(this.dir);
     this.failure = null;
+    this.encounter = null;
+    this.inEncounter = false;
+    this.stopRequested = false;
     this.rebase();
   }
 

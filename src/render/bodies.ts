@@ -5,15 +5,18 @@ export const BODY_COLORS = ['#ffd166', '#06d6a0', '#4cc9f0'] as const;
 /**
  * The three body spheres (plan §7.6). The displayed radius is proportional to m^(1/3) and
  * clamped to a minimum size in pixels. It is a visual aid, not a physical radius.
+ *
+ * Lambert shaded, with some emission so the dark side never goes black: the shading is what
+ * makes them read as spheres, and so as being at a depth. The scene supplies the lights.
  */
 export class Bodies {
   readonly group = new THREE.Group();
   private readonly geometry = new THREE.SphereGeometry(1, 24, 16);
-  private readonly materials: THREE.MeshBasicMaterial[];
+  private readonly materials: THREE.MeshLambertMaterial[];
   private readonly meshes: THREE.Mesh[];
 
   constructor() {
-    this.materials = BODY_COLORS.map((color) => new THREE.MeshBasicMaterial({ color }));
+    this.materials = BODY_COLORS.map((color) => new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35 }));
     this.meshes = this.materials.map((material) => {
       const mesh = new THREE.Mesh(this.geometry, material);
       mesh.frustumCulled = false;
