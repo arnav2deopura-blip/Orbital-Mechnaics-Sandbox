@@ -1,1 +1,276 @@
-// Owns state + integrator + counters + advanceTo(). Plan §3.
+import { shiftToComFrame } from './coords';
+import { createDiagnostics, createReference, measure } from './diagnostics';
+import type { Diagnostics, Reference } from './diagnostics';
+import { createIntegrator } from './integrators';
+import { IAS15 } from './integrators/ias15';
+import type { Integrator, IntegratorId, IntegratorParams } from './integrators/types';
+import { copyState, createCounters, createState, STATE_LEN } from './state';
+import type { CostCounters, SystemState } from './types';
+
+/** advanceTo() reads the clock this often (in steps), not after every one. */
+const CLOCK_EVERY = 32;
+
+export interface SimulationOptions {
+  integrator: IntegratorId;
+  /** Tuning for the integrator, kept by reference: change sim.params.dt between steps, no setter needed. */
+  params: Omit<IntegratorParams, 'counters'>;
+  /** Euler only: the semi-implicit form. */
+  symplecticEuler?: boolean;
+  /** Milliseconds, for the budget in advanceTo(). Defaults to performance.now. */
+  clock?: () => number;
+  /** How to load the initial state. */
+  load?: LoadOptions;
+}
+
+export interface LoadOptions {
+  /** The period of the system if it is known, for T_char. Otherwise it is measured. */
+  period?: number;
+  /** Shift to the COM frame (plan §3.2). Default true. */
+  recenter?: boolean;
+}
+
+/**
+ * 'reached': the state is at or just past tTarget. 'budget': the deadline came first. 'failed':
+ * a step produced NaN or Inf (or could not be taken), the state was put back, and failure says why.
+ */
+export interface AdvanceResult {
+  status: 'reached' | 'budget' | 'failed';
+  steps: number;
+}
+
+/**
+ * Owns the state, the integrator and the cost counters (plan §3). The caller asks for a time
+ * with advanceTo() and draws stateAt(), which only interpolates between true states.
+ *
+ * `state` is the latest true state and `prev` the one before the last step. Fixed-step
+ * methods run until `state` has passed the target, so the target is always inside
+ * [prev.t, state.t] (in the running direction) and there is something to interpolate between.
+ */
+export class Simulation {
+  readonly state = createState();
+  readonly prev = createState();
+  readonly counters: CostCounters = createCounters();
+  readonly params: IntegratorParams;
+  /** The last measure() result. */
+  readonly diagnostics: Diagnostics = createDiagnostics();
+  integrator: Integrator;
+  /** Reference invariants (plan §3.2). They are replaced by load() and kept by setIntegrator(). */
+  reference!: Reference; // set by load()
+  /** Called with the true state after each accepted step. For trails and the diagnostics sampler. */
+  onStep: ((s: SystemState) => void) | null = null;
+  /** Bumped by everything that changes the state other than a step, so a caller holding a time target can resync. */
+  revision = 0;
+  /** Why integration stopped, or null. Cleared by load(), reset() and setIntegrator(). */
+  failure: string | null = null;
+
+  /** What reset() returns to: the state at the last load(). */
+  private readonly baseline = createState();
+  private dir: 1 | -1 = 1;
+  /** Whether the integrator's dense output describes the step from prev to state. */
+  private denseValid = false;
+  private readonly clock: () => number;
+  private readonly result: AdvanceResult = { status: 'reached', steps: 0 };
+
+  constructor(initial: SystemState, options: SimulationOptions) {
+    this.params = { ...options.params, counters: this.counters };
+    this.integrator = createIntegrator(options.integrator, options.symplecticEuler);
+    this.clock = options.clock ?? (() => performance.now());
+    this.load(initial, options.load);
+  }
+
+  get direction(): 1 | -1 {
+    return this.dir;
+  }
+
+  /**
+   * Replaces the system: a new preset, or an edit of the current one (plan §4.7), which is then
+   * a snapshot of `state` with some fields changed. t is taken from `next`. The reference
+   * values, the cost counters and reset()'s starting point all restart from here. Throws if the
+   * integrator rejects the system (WH with softening), after the state has been replaced.
+   */
+  load(next: SystemState, { period, recenter = true }: LoadOptions = {}): void {
+    copyState(next, this.state);
+    if (recenter) shiftToComFrame(this.state);
+    this.reference = createReference(this.state, period);
+    copyState(this.state, this.baseline);
+    this.zeroCounters();
+    this.restart();
+  }
+
+  /** Back to the state of the last load(), forward or backward as before. The reference is unchanged. */
+  reset(): void {
+    copyState(this.baseline, this.state);
+    this.zeroCounters();
+    this.restart();
+  }
+
+  /**
+   * Continues from the current state with another method (plan §4.7). The reference values are
+   * kept, so the error afterwards is that of the new method. Throws, changing nothing, if it
+   * rejects the system.
+   */
+  setIntegrator(id: IntegratorId, symplecticEuler = false): void {
+    const next = createIntegrator(id, symplecticEuler);
+    next.init(this.state, this.params);
+    next.setDirection(this.dir);
+    this.integrator = next;
+    this.failure = null;
+    this.rebase();
+  }
+
+  /** Time reversal (plan §7.3). */
+  setDirection(sign: 1 | -1): void {
+    if (sign === this.dir) return;
+    this.dir = sign;
+    this.integrator.setDirection(sign);
+    this.rebase();
+  }
+
+  /** Magnitude of the step the next step() will try: params.dt, or the adaptive step IAS15 has settled on. */
+  currentDt(): number {
+    return this.integrator instanceof IAS15 ? this.integrator.dtNext : this.params.dt;
+  }
+
+  /** Measures the true state into `diagnostics` (plan §6) and returns it. */
+  refreshDiagnostics(): Diagnostics {
+    measure(this.state, this.diagnostics);
+    return this.diagnostics;
+  }
+
+  /** One step whatever the target, for the single-step button. False if it failed. */
+  step(): boolean {
+    return this.failure === null && this.takeStep();
+  }
+
+  /**
+   * Steps until `state` has reached tTarget in the running direction, or until `deadlineMs`
+   * (on the clock) has passed, checked every few steps. The returned object is reused: read it
+   * before the next call.
+   */
+  advanceTo(tTarget: number, deadlineMs: number): AdvanceResult {
+    const result = this.result;
+    result.steps = 0;
+    result.status = 'reached';
+    if (this.failure !== null) {
+      result.status = 'failed';
+      return result;
+    }
+    const state = this.state;
+    const dir = this.dir;
+    let steps = 0;
+    while ((state.t - tTarget) * dir < 0) {
+      if (steps !== 0 && steps % CLOCK_EVERY === 0 && this.clock() >= deadlineMs) {
+        result.status = 'budget';
+        break;
+      }
+      if (!this.takeStep()) {
+        result.status = 'failed';
+        break;
+      }
+      steps++;
+    }
+    result.steps = steps;
+    return result;
+  }
+
+  /**
+   * Writes the system at time t, clamped to [prev.t, state.t], into out (plan §5.1). IAS15
+   * evaluates its dense output; the others use cubic Hermite interpolation of position and
+   * velocity between the two true states. Only for drawing: diagnostics read `state`.
+   */
+  stateAt(t: number, out: SystemState): void {
+    const { prev, state } = this;
+    out.m.set(state.m);
+    out.G = state.G;
+    out.eps2 = state.eps2;
+    const span = state.t - prev.t;
+    const h = span === 0 ? 1 : Math.min(Math.max((t - prev.t) / span, 0), 1);
+    if (h === 1) {
+      out.t = state.t;
+      out.x.set(state.x);
+      out.v.set(state.v);
+      return;
+    }
+    out.t = prev.t + h * span;
+    if (h === 0) {
+      out.x.set(prev.x);
+      out.v.set(prev.v);
+    } else if (this.denseValid && this.integrator.dense) {
+      this.integrator.dense(h, out.x, out.v);
+    } else {
+      hermite(prev, state, h, out);
+    }
+  }
+
+  private takeStep(): boolean {
+    const { state, prev } = this;
+    copyState(state, prev);
+    const dt = this.integrator.step(state);
+    if (dt === 0 || !isFiniteState(state)) {
+      // Put back the last good state. An adaptive method that stepped nowhere left it unchanged.
+      copyState(prev, state);
+      this.integrator.reset();
+      this.denseValid = false;
+      const at = createDiagnostics(); // rare, so allocating here is fine
+      measure(prev, at);
+      this.failure =
+        `integration failed at t=${prev.t.toPrecision(6)}, min separation ${at.minSeparation.toPrecision(3)}`;
+      return false;
+    }
+    this.counters.stepCount++;
+    this.denseValid = this.integrator.dense !== undefined;
+    this.onStep?.(state);
+    return true;
+  }
+
+  /** Re-initializes the integrator on the current state, without touching the reference. */
+  private restart(): void {
+    this.integrator.init(this.state, this.params);
+    this.integrator.setDirection(this.dir);
+    this.failure = null;
+    this.rebase();
+  }
+
+  /** Marks a change that was not a step: nothing to interpolate from, and callers must resync. */
+  private rebase(): void {
+    copyState(this.state, this.prev);
+    this.denseValid = false;
+    this.revision++;
+  }
+
+  private zeroCounters(): void {
+    this.counters.stepCount = 0;
+    this.counters.forceEvals = 0;
+    this.counters.rejectedSteps = 0;
+  }
+}
+
+/** False if any position or velocity is NaN or infinite. One check for all 18 numbers. */
+function isFiniteState(s: SystemState): boolean {
+  let sum = 0;
+  for (let i = 0; i < STATE_LEN; i++) sum += s.x[i] + s.v[i];
+  return Number.isFinite(sum);
+}
+
+/** Cubic Hermite from a to b at the fraction h in (0, 1); the velocity is the derivative of the position. */
+function hermite(a: SystemState, b: SystemState, h: number, out: SystemState): void {
+  const span = b.t - a.t;
+  const h2 = h * h;
+  const h3 = h2 * h;
+  const p00 = 2 * h3 - 3 * h2 + 1;
+  const p10 = h3 - 2 * h2 + h;
+  const p01 = -2 * h3 + 3 * h2;
+  const p11 = h3 - h2;
+  const d00 = (6 * h2 - 6 * h) / span;
+  const d10 = (3 * h2 - 4 * h + 1) / span;
+  const d01 = (-6 * h2 + 6 * h) / span;
+  const d11 = (3 * h2 - 2 * h) / span;
+  for (let i = 0; i < STATE_LEN; i++) {
+    const x0 = a.x[i];
+    const x1 = b.x[i];
+    const k0 = span * a.v[i]; // slopes over the whole step
+    const k1 = span * b.v[i];
+    out.x[i] = p00 * x0 + p10 * k0 + p01 * x1 + p11 * k1;
+    out.v[i] = d00 * x0 + d10 * k0 + d01 * x1 + d11 * k1;
+  }
+}

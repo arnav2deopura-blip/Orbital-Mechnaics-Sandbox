@@ -42,5 +42,11 @@ export interface Integrator {
   step(s: SystemState): number;
   /** Drops cached history. Call after anything outside step() changes s (edits, rollback to prev). */
   reset(): void;
+  /**
+   * Dense output (plan §4.5): position and velocity at the fraction h of the most recent step
+   * (0 is its start, 1 its end), from the polynomial that took it. Only methods that have one
+   * (IAS15) define it; the rest are interpolated from the step's end points.
+   */
+  dense?(h: number, xOut: Float64Array, vOut: Float64Array): void;
   setDirection(sign: 1 | -1): void;
 }

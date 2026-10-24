@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inertialToJacobi, jacobiToInertial } from '../src/sim/coords';
+import { inertialToJacobi, jacobiToInertial, shiftToComFrame } from '../src/sim/coords';
 import { computeAccel } from '../src/sim/forces';
 import { createState } from '../src/sim/state';
 import { makeRng } from './helpers';
@@ -78,5 +78,42 @@ describe('Jacobi coordinates', () => {
     const ja = new Float64Array(9);
     inertialToJacobi(s.m, a, ja);
     expect(Math.hypot(ja[0], ja[1], ja[2])).toBeLessThan(1e-16);
+  });
+});
+
+describe('shiftToComFrame', () => {
+  it('puts the COM at the origin and the total momentum at zero, keeping relative motion', () => {
+    const s = createState();
+    s.m.set([1, 2, 3]);
+    s.x.set([10, 20, 30, 13, 20, 30, 10, 26, 30]);
+    s.v.set([5, 1, 0, 5, 3, 0, 5, 1, 4]);
+    const rel = s.x[3] - s.x[0];
+    shiftToComFrame(s);
+    for (let c = 0; c < 3; c++) {
+      expect(Math.abs(s.m[0] * s.x[c] + s.m[1] * s.x[3 + c] + s.m[2] * s.x[6 + c])).toBeLessThan(1e-13);
+      expect(Math.abs(s.m[0] * s.v[c] + s.m[1] * s.v[3 + c] + s.m[2] * s.v[6 + c])).toBeLessThan(1e-13);
+    }
+    expect(s.x[3] - s.x[0]).toBeCloseTo(rel, 13);
+  });
+
+  it('leaves a system of test particles alone, since it has no COM', () => {
+    const s = createState();
+    s.x.set([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    s.v.set([9, 8, 7, 6, 5, 4, 3, 2, 1]);
+    const before = createState();
+    before.x.set(s.x);
+    before.v.set(s.v);
+    shiftToComFrame(s);
+    expect(s.x).toEqual(before.x);
+    expect(s.v).toEqual(before.v);
+  });
+
+  it('removes a 1e6 offset to roundoff of that offset', () => {
+    const s = createState();
+    s.m.set([1, 1, 1]);
+    s.x.set([1e6 + 1, 1e6, 1e6, 1e6 - 1, 1e6, 1e6, 1e6, 1e6 + 1, 1e6]);
+    shiftToComFrame(s);
+    expect(Math.abs(s.x[0] + s.x[3] + s.x[6])).toBeLessThan(1e-9);
+    expect(Math.abs(s.x[2])).toBeLessThan(1e-9);
   });
 });

@@ -1,4 +1,6 @@
-// Jacobi <-> inertial transforms (plan §4.4). The COM shift of plan §3.2 is not here yet.
+import type { SystemState } from './types';
+
+// Center-of-mass shift (plan §3.2) and Jacobi <-> inertial transforms (plan §4.4).
 //
 // Jacobi coordinates for three bodies ordered (central, inner companion, outer), with
 // eta1 = m0 + m1 and M = m0 + m1 + m2:
@@ -13,6 +15,25 @@
 //
 // Both functions allocate nothing, and the output may be the same array as the input:
 // each component's three entries are all read before any of them is written.
+
+/**
+ * Moves s into its center-of-mass frame (plan §3.2): the mass-weighted mean position and
+ * velocity are subtracted from every body, so the COM sits at the origin and total momentum
+ * is zero. A system of test particles only (total mass 0) has no COM and is left as it is.
+ */
+export function shiftToComFrame(s: SystemState): void {
+  const { m, x, v } = s;
+  const M = m[0] + m[1] + m[2];
+  if (!(M > 0)) return;
+  for (let c = 0; c < 3; c++) {
+    const rc = (m[0] * x[c] + m[1] * x[3 + c] + m[2] * x[6 + c]) / M;
+    const vc = (m[0] * v[c] + m[1] * v[3 + c] + m[2] * v[6 + c]) / M;
+    for (let i = 0; i < 3; i++) {
+      x[3 * i + c] -= rc;
+      v[3 * i + c] -= vc;
+    }
+  }
+}
 
 /** Inertial -> Jacobi. */
 export function inertialToJacobi(m: Float64Array, q: Float64Array, j: Float64Array): void {
