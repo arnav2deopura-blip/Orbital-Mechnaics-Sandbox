@@ -140,6 +140,17 @@ export function hierarchical(): { s: SystemState; T1: number } {
   return { s, T1: 2 * Math.PI * Math.sqrt(1 / eta1) };
 }
 
+/**
+ * The Pythagorean (Burrau) problem: masses 3, 4, 5 at rest on the corners of a 3-4-5 right
+ * triangle, each side opposite the mass equal to its length (plan §8.3). G = 1, COM at the origin.
+ */
+export function pythagorean(): SystemState {
+  const s = createState();
+  s.m.set([3, 4, 5]);
+  s.x.set([1, 3, 0, -2, -1, 0, 1, -1, 0]);
+  return s;
+}
+
 /** The system with body k of the result being body order[k] of s. */
 export function permute(s: SystemState, order: number[]): SystemState {
   const out = createState(s.G, s.eps2);
