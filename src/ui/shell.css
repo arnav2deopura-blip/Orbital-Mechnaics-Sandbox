@@ -5,10 +5,15 @@
    One accent, vermilion, is kept for the primary action, the selected tab, the focus ring and the
    worst warning. Every other color on the plate is a body: gold, cornflower, bone. The tokens are in
    tokens.css, shared with the Learn page, and mirrored in palette.ts. The page is dark only: the plate is a
-   night sky, and the chrome stays out of its way. */
+   night sky, and the chrome stays out of its way.
+
+   Made for a desktop window: nothing reflows to a phone. Below 1200 by 680 pixels the page scrolls
+   instead. A masthead runs across the top of both pages, and under it the simulator is an
+   instrument bar, the plate (with the charts under it) and a tabbed specification column. */
 
 :root {
-  --bar-height: 56px;
+  --masthead-height: 44px;
+  --bar-height: 64px;
 
   /* Tweakpane, inside the module sections: flat, on the section's own ground. */
   --tp-base-background-color: transparent;
@@ -16,11 +21,10 @@
   --tp-base-font-family: var(--font);
   --tp-base-border-radius: 2px;
   --tp-blade-border-radius: 2px;
-  --tp-blade-value-width: 152px;
   --tp-blade-horizontal-padding: 0px;
   --tp-container-horizontal-padding: 0px;
-  --tp-container-unit-spacing: 6px;
-  --tp-container-unit-size: 26px;
+  --tp-container-unit-spacing: 8px;
+  --tp-container-unit-size: 28px;
   --tp-container-background-color: transparent;
   --tp-container-background-color-hover: var(--field);
   --tp-container-background-color-focus: var(--field);
@@ -46,7 +50,6 @@ html,
 body {
   margin: 0;
   height: 100%;
-  overflow: hidden;
   background: var(--ground);
   color: var(--ink);
   font: 400 13.5px/1.5 var(--font);
@@ -67,11 +70,96 @@ svg {
   flex: none;
 }
 
-.shell {
-  position: fixed;
-  inset: 0;
+/* The window: the masthead over one page at a time. Under the least size it scrolls. */
+#app {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-width: 1200px;
+  min-height: 680px;
+}
+
+.page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- the masthead: the name, the two pages, the layout ----------------------------------------- */
+
+.masthead {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  height: var(--masthead-height);
+  background: var(--plate);
+  border-bottom: 1px solid var(--rule);
+  z-index: 25;
+}
+
+.pages {
+  display: flex;
+  align-items: stretch;
+}
+
+.page-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px;
+  border: 0;
+  border-right: 1px solid var(--rule);
+  border-radius: 0;
+  background: none;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 550;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.page-tab:first-child {
+  border-left: 0;
+}
+
+.page-tab:hover {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.page-tab[aria-current='page'],
+.layout-button[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+.page-tab[aria-current='page']::after,
+.layout-button[aria-expanded='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.layout-host {
+  display: flex;
+  margin-left: auto;
+}
+
+.layout-button {
+  border-right: 0;
+  border-left: 1px solid var(--rule);
 }
 
 /* ---- the bar: one row of ruled cells -------------------------------------------------------- */
@@ -90,7 +178,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 20px;
+  padding: 0 24px 0 20px;
   border-right: 1px solid var(--rule);
   color: var(--ink);
   text-decoration: none;
@@ -98,7 +186,7 @@ svg {
 }
 
 .brand-name {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 700;
   font-stretch: 82%;
   letter-spacing: -0.005em;
@@ -145,7 +233,7 @@ svg {
 .bar-field,
 .transport {
   display: flex;
-  padding: 0 18px;
+  padding: 0 24px;
   border-right: 1px solid var(--rule);
 }
 
@@ -174,7 +262,7 @@ svg {
 
 .bar-select {
   height: 22px;
-  max-width: 230px;
+  max-width: 280px;
   padding: 0 20px 0 0;
   border: 0;
   border-radius: 0;
@@ -200,7 +288,7 @@ svg {
 }
 
 .preset-select {
-  min-width: 170px;
+  min-width: 230px;
 }
 
 /* Two bodies or three. The selected one is filled with ink: it is a state, and the accent is for acting. */
@@ -307,7 +395,7 @@ svg {
 }
 
 .bar-range {
-  width: 110px;
+  width: 150px;
   height: 22px;
   margin: 0;
   background: transparent;
@@ -371,15 +459,14 @@ svg {
   position: relative;
   align-self: stretch;
   height: auto;
-  padding: 0 18px;
+  padding: 0 26px;
   border: 0;
   border-left: 1px solid var(--rule);
   border-radius: 0;
   font-weight: 500;
 }
 
-.switches > .bar-button:first-child,
-.switches > .menu-host:first-child .bar-button {
+.switches > .bar-button:first-child {
   border-left: 0;
 }
 
@@ -387,8 +474,7 @@ svg {
   background: var(--field);
 }
 
-.switches .bar-button.on::after,
-.switches .bar-button[aria-expanded='true']::after {
+.switches .bar-button.on::after {
   content: '';
   position: absolute;
   left: 0;
@@ -398,17 +484,12 @@ svg {
   background: var(--accent);
 }
 
-.menu-host {
-  position: static;
-  display: flex;
-}
-
 /* ---- the plate: caption and clock ------------------------------------------------------------ */
 
 .hud {
   position: absolute;
-  left: 20px;
-  bottom: 14px;
+  left: 24px;
+  bottom: 16px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -473,8 +554,8 @@ svg {
 
 .plate-caption {
   position: absolute;
-  right: 20px;
-  bottom: 16px;
+  right: 24px;
+  bottom: 18px;
   max-width: 44%;
   margin: 0;
   color: var(--ink-3);
@@ -485,7 +566,7 @@ svg {
   z-index: 3;
 }
 
-/* ---- the Modules menu: a sheet hung from the bar, ruled like a table --------------------------- */
+/* ---- menus: a sheet hung from a bar, ruled like a table ---------------------------------------- */
 
 .menu {
   position: absolute;
@@ -503,7 +584,7 @@ svg {
 
 .menu-heading {
   margin: 0;
-  padding: 14px 18px 12px;
+  padding: 16px 20px 14px;
   color: var(--ink-2);
   font-size: 13px;
   border-bottom: 1px solid var(--rule);
@@ -521,7 +602,7 @@ svg {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  padding: 12px 18px 13px;
+  padding: 14px 20px 15px;
   background: var(--raised);
   cursor: pointer;
 }
@@ -566,7 +647,132 @@ svg {
 .menu-foot {
   display: flex;
   justify-content: flex-end;
-  padding: 10px 18px;
+  padding: 12px 20px;
+}
+
+/* The chooser under the panel's tabs: one column of modules, as wide as the panel. */
+.dock-menu {
+  left: 0;
+  right: 0;
+  width: auto;
+  max-height: calc(100vh - var(--masthead-height) - var(--bar-height) - 56px);
+  border-right: 0;
+}
+
+.dock-menu .menu-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A tab's name over its modules, so the chooser reads like the panel does. */
+.menu-group {
+  margin: 0;
+  padding: 12px 20px 8px;
+  background: var(--raised);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+/* The arrangements: four ruled rows, each with a sketch of the page it makes. */
+.layout-menu {
+  right: 0;
+  width: 480px;
+  border-right: 0;
+}
+
+.layout-list {
+  display: grid;
+  gap: 1px;
+  background: var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.layout-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border: 0;
+  background: var(--raised);
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.layout-item:hover {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.layout-item.on {
+  color: var(--ink);
+}
+
+.layout-item .sketch {
+  flex: none;
+  width: 42px;
+  height: 27px;
+}
+
+.layout-item b {
+  display: block;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.layout-item small {
+  display: block;
+  margin-top: 1px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* The selected arrangement is ticked at the right, as a drawn mark and not a color. */
+.layout-item.on::after {
+  content: '';
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  background: var(--ink);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M2.5 7.4l3 3 6-6.4' fill='none' stroke='black' stroke-width='1.8'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M2.5 7.4l3 3 6-6.4' fill='none' stroke='black' stroke-width='1.8'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.layout-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.layout-toggle span {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+kbd {
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  font: 500 11.5px/18px var(--font);
+}
+
+.layout-foot {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.layout-hint {
+  color: var(--ink-3);
+  font-size: 12.5px;
 }
 
 .text-button {
@@ -606,7 +812,9 @@ svg {
 /* ---- workspace: the plate beside the specification column ------------------------------------- */
 
 .workspace {
-  --dock-width: 380px;
+  --dock-width: 420px;
+  /* Tweakpane's value column grows with the panel, so a wide panel gives the sliders room. */
+  --tp-blade-value-width: clamp(160px, calc(var(--dock-width) - 210px), 300px);
   flex: 1;
   min-height: 0;
   display: grid;
@@ -673,25 +881,77 @@ svg {
 }
 
 .dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
   background: var(--raised);
-  scrollbar-color: var(--rule-strong) transparent;
-  scrollbar-width: thin;
+}
+
+/* Four tabs and, at the end, the chooser. The open tab is underlined in the accent, as in the masthead. */
+.dock-tabs {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  height: 48px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.dock-tab {
+  position: relative;
+  flex: none;
+  padding: 0 20px;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 14px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dock-tab:hover {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.dock-tab.on {
+  color: var(--ink);
+}
+
+.dock-tab.on::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.dock-tab:focus-visible {
+  outline-offset: -3px;
+}
+
+.dock-customize {
+  align-self: center;
+  margin: 0 12px 0 auto;
 }
 
 .dock-cards {
   display: flex;
+  flex: 1;
   flex-direction: column;
-}
-
-.sheet-head {
-  display: none;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-color: var(--rule-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .dock-empty {
   margin: 0;
-  padding: 24px 20px;
+  padding: 28px 24px;
   color: var(--ink-2);
 }
 
@@ -704,7 +964,7 @@ svg {
 .module-head {
   display: flex;
   align-items: center;
-  padding-right: 10px;
+  padding-right: 14px;
 }
 
 .module-toggle {
@@ -712,8 +972,8 @@ svg {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 48px;
-  padding: 0 8px 0 20px;
+  min-height: 54px;
+  padding: 0 8px 0 24px;
   border: 0;
   background: none;
   text-align: left;
@@ -750,7 +1010,7 @@ svg {
 }
 
 .module-body {
-  padding: 0 20px 20px;
+  padding: 0 24px 28px;
 }
 
 /* The preset's name: the one large line in the column, the title of the plate. */
@@ -765,8 +1025,8 @@ svg {
 }
 
 .module-subhead {
-  margin: 18px 0 4px;
-  padding-top: 12px;
+  margin: 24px 0 6px;
+  padding-top: 16px;
   border-top: 1px solid var(--rule);
   color: var(--ink);
   font-size: 14px;
@@ -774,7 +1034,7 @@ svg {
 }
 
 .module-prose {
-  margin: 8px 0;
+  margin: 10px 0;
   color: var(--ink);
   font-size: 13.5px;
   max-width: 62ch;
@@ -821,7 +1081,7 @@ svg {
 
 .learn-link {
   display: inline-block;
-  margin-top: 10px;
+  margin-top: 12px;
   color: var(--ink);
   font-size: 13.5px;
   text-decoration: underline;
@@ -834,7 +1094,7 @@ svg {
 }
 
 .module-pane {
-  margin: 10px 0 0;
+  margin: 14px 0 0;
 }
 
 /* Tweakpane's root floats with a shadow; in a section it simply fills the column. */
@@ -871,9 +1131,14 @@ svg {
 
 /* ---- charts: under the plate, ruled into cells ------------------------------------------------ */
 
+/* Its height is a share of the stage that the user sets (the handle on its top edge, or the slider
+   in its header); the plot cells are laid out to fill it (chartLayout.ts). */
 .drawer {
+  position: relative;
   flex: none;
-  max-height: 38vh;
+  height: calc(var(--drawer-size, 0.34) * 100%);
+  min-height: 148px;
+  max-height: calc(100% - 200px);
   display: flex;
   flex-direction: column;
   background: var(--ground);
@@ -883,11 +1148,36 @@ svg {
   color: var(--ink-3);
 }
 
+.drawer-resizer {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rule);
+  cursor: row-resize;
+  z-index: 4;
+}
+
+.drawer-resizer::before {
+  content: '';
+  position: absolute;
+  inset: -5px 0;
+}
+
+.drawer-resizer:hover,
+.drawer-resizer.dragging,
+.drawer-resizer:focus-visible {
+  background: var(--accent);
+  outline: 0;
+}
+
 .drawer-head {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 6px 10px 6px 20px;
+  flex: none;
+  gap: 20px;
+  padding: 8px 12px 8px 24px;
   border-bottom: 1px solid var(--rule);
   font-size: 13px;
 }
@@ -898,26 +1188,31 @@ svg {
   font-weight: 650;
 }
 
-.drawer-head .learn-link {
-  margin: 0 0 0 auto;
-  white-space: nowrap;
+.drawer-size {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 12px;
+}
+
+.drawer-size .bar-range {
+  width: 120px;
 }
 
 .chips {
   display: flex;
   flex: 1;
+  flex-wrap: wrap;
   min-width: 0;
-  gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  gap: 2px 2px;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 26px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 9px;
   border: 0;
   border-radius: var(--radius);
   background: none;
@@ -953,24 +1248,44 @@ svg {
 }
 
 .chart-grid {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-color: var(--rule-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .chart-cell {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  padding: 8px 14px 4px;
+  min-height: 0;
+  padding: 10px 16px 8px;
   border-left: 1px solid var(--rule);
 }
 
-.chart-cell:first-child {
+.chart-cell.row-start {
   border-left: 0;
+  padding-left: 24px;
+}
+
+.chart-cell.row-later {
+  border-top: 1px solid var(--rule);
+}
+
+.chart-head {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .chart-label {
   overflow: hidden;
+  min-width: 0;
   color: var(--ink);
   font-size: 12.5px;
   font-weight: 550;
@@ -979,10 +1294,42 @@ svg {
   cursor: help;
 }
 
-.chart-caption {
-  min-height: 2.6em;
-  color: var(--ink-3);
+/* The time under the pointer and this chart's value there. */
+.chart-readout {
+  flex: none;
+  color: var(--ink-2);
   font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.chart-plot {
+  flex: 1;
+  min-height: 0;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+/* The line that follows the pointer across every plot at once: a rule, not uPlot's dashed blue-grey. */
+.chart-plot .u-cursor-x {
+  border-right: 1px solid var(--ink-3) !important;
+}
+
+.chart-note {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 7px 24px 8px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.chart-note .learn-link {
+  margin: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 
 /* ---- warnings and the welcome note ------------------------------------------------------------- */
@@ -1235,172 +1582,58 @@ svg {
   font-weight: 700;
 }
 
-/* ---- narrower screens --------------------------------------------------------------------------- */
+/* ---- smaller desktop windows ------------------------------------------------------------------- */
 
-@media (max-width: 1600px) {
-  .brand-name {
-    display: none;
-  }
-
-  .brand {
-    padding: 0 18px;
-  }
-}
-
-@media (max-width: 1500px) {
-  .switches .bar-button:not(.learn-button) span {
-    display: none;
-  }
-
-  .switches .bar-button:not(.learn-button) {
-    padding: 0 16px;
-  }
-}
-
-@media (max-width: 1280px) {
-  .learn-button span {
-    display: none;
-  }
-
-  .learn-button {
-    padding: 0 16px;
-  }
-
+@media (max-width: 1440px) {
   .bar-field,
   .transport {
-    padding: 0 14px;
-  }
-
-  .bar-range {
-    width: 80px;
-  }
-
-  .bar-value {
-    min-width: 0;
-  }
-}
-
-@media (max-width: 1060px) {
-  .bar-value {
-    display: none;
+    padding: 0 18px;
   }
 
   .preset-select {
-    min-width: 120px;
+    min-width: 190px;
   }
-}
 
-@media (max-width: 900px) {
+  .bar-range {
+    width: 116px;
+  }
+
+  .switches .bar-button {
+    padding: 0 20px;
+  }
+
   .plate-caption {
+    max-width: 36%;
+  }
+
+  .drawer-head {
+    gap: 14px;
+  }
+
+  .drawer-size .bar-caption {
     display: none;
+  }
+
+  .drawer-size .bar-range {
+    width: 96px;
   }
 }
 
-@media (max-width: 760px) {
-  .topbar {
-    flex-wrap: wrap;
-  }
-
-  .brand {
-    flex: 1;
-    min-height: 48px;
-    border-right: 0;
-  }
-
-  .brand-name {
-    display: inline;
-  }
-
-  /* Play first: the row scrolls sideways on a phone, and the thing to press must not be the part cut off. */
-  .transport {
-    order: -1;
-  }
-
-  .switches {
-    margin-left: 0;
-  }
-
-  .bar-main {
-    order: 3;
-    flex-basis: 100%;
-    min-height: 56px;
-    border-top: 1px solid var(--rule);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .bar-field,
-  .transport {
-    flex: none;
-  }
-
-  .bar-field:last-child {
-    border-right: 0;
-  }
-
-  .workspace,
-  .workspace.dock-hidden {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .dock-resizer {
+@media (max-width: 1320px) {
+  .bar-value {
     display: none;
   }
 
-  .clock-time {
-    font-size: 40px;
+  .switches .bar-button span {
+    display: none;
   }
 
-  .banner,
-  .welcome {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 14px 48px 14px 16px;
+  .switches .bar-button {
+    padding: 0 18px;
   }
 
-  .banner-head,
-  .banner-detail,
-  .banner-suggestion,
-  .banner-actions,
-  .welcome > strong,
-  .welcome p {
-    grid-column: 1;
-    grid-row: auto;
-  }
-
-  .dock {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    max-height: 62vh;
-    border-top: 1px solid var(--rule-strong);
-    z-index: 15;
-  }
-
-  .sheet-head {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 20px;
-    background: var(--raised);
-    border-bottom: 1px solid var(--rule);
-    font-size: 16px;
-  }
-
-  .menu {
-    position: fixed;
-    left: 0;
-    right: 0;
-    top: auto;
-    width: auto;
-    border: 1px solid var(--rule-strong);
-  }
-
-  .menu-list {
-    grid-template-columns: 1fr;
+  .preset-select {
+    min-width: 160px;
   }
 }
 

@@ -32,6 +32,7 @@ const SNAP_VIEWS: [string, SnapView][] = [
 export function viewModule(controller: Controller, view: SceneView): ModuleSpec {
   return {
     id: 'view',
+    group: 'view',
     title: 'View',
     summary: 'Camera, grid, drop lines, arrows and trails',
     shownByDefault: true,

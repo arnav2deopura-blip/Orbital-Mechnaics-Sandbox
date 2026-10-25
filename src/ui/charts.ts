@@ -2,14 +2,22 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { SERIES } from '../sim/sampler';
 import type { Sampler, SeriesKey, SeriesSpec } from '../sim/sampler';
+import { learnHref } from '../app/router';
+import { clampDrawer, DRAWER_DEFAULT, DRAWER_LARGE, DRAWER_MAX, DRAWER_MIN } from './arrangement';
 import { decadeSplits } from './axes';
+import { chartGrid } from './chartLayout';
 import { ACCENT, INK, INK_2, INK_3, RULE, RULE_STRONG } from './palette';
 
-// The diagnostic charts (plan §6): one small uPlot per series in a drawer under the view, drawn
-// from a Sampler, with a toggle per chart in the drawer's header. Redrawn only when the sampler's
-// version has moved.
+// The diagnostic charts (plan §6): one uPlot per series in a drawer under the view, drawn from a
+// Sampler, with a toggle per chart in the drawer's header. Redrawn only when the sampler's version
+// has moved. The drawer's height is the user's (a handle on its top edge, a slider in its header),
+// and the plots fill it: a short drawer is one row, a tall one wraps into rows of larger plots.
+// Hovering any plot puts a vertical line at the same time in every plot, with the values read out.
 
-const CHART_HEIGHT = 120;
+/** Moving the pointer over one plot moves the line in all of them. */
+const CURSOR_SYNC = 'diagnostics';
+/** Arrow keys on the drawer's handle move it by this share of the stage. */
+const HANDLE_STEP = 0.02;
 /** A log axis cannot show zero: an error that is exactly zero is drawn here. */
 const FLOOR = 1e-18;
 
@@ -21,12 +29,15 @@ const NEEDS_DATA: SeriesKey[] = ['analyticError', 'divergence'];
 
 export interface ChartSettings {
   visible: boolean;
+  /** The drawer's share of the stage's height. */
+  size: number;
   show: Record<SeriesKey, boolean>;
 }
 
 export function defaultChartSettings(): ChartSettings {
   return {
     visible: true,
+    size: DRAWER_DEFAULT,
     show: Object.fromEntries(SERIES.map((spec) => [spec.key, SHOWN_AT_START.includes(spec.key)])) as Record<SeriesKey, boolean>,
   };
 }
@@ -62,8 +73,9 @@ export function downloadText(filename: string, text: string, type = 'text/csv'):
 interface Cell {
   spec: SeriesSpec;
   root: HTMLDivElement;
-  label: HTMLDivElement;
-  caption: HTMLDivElement | null;
+  label: HTMLSpanElement;
+  readout: HTMLSpanElement;
+  holder: HTMLDivElement;
   plot: uPlot;
   /** y values for the plot: clamped copies, since a log axis cannot take zero. */
   y: Float64Array;
@@ -79,12 +91,19 @@ export class Charts {
   private readonly drawer: HTMLElement;
   private readonly dock = document.createElement('div');
   private readonly chips = new Map<SeriesKey, HTMLButtonElement>();
+  private readonly note = document.createElement('div');
+  private readonly noteText = document.createElement('span');
+  private readonly slider = document.createElement('input');
+  private readonly expand = document.createElement('button');
+  private readonly handle = document.createElement('div');
   private readonly cells: Cell[];
   private readonly resizeObserver: ResizeObserver;
   private drawnVersion = -1;
   private drawnTwinVersion = -1;
   private drawnLayout = '';
   private captionText = '';
+  /** The height the drawer had before "expand", so the same button can give it back. */
+  private sizeBeforeExpand: number | null = null;
 
   /**
    * `caption` returns the sentence for the energy chart. `twin` returns the comparison twin's
@@ -96,11 +115,14 @@ export class Charts {
     this.caption = caption;
     this.twin = twin;
     this.drawer = host;
-    host.appendChild(this.makeHeader());
+    this.makeHandle();
+    host.append(this.handle, this.makeHeader());
     const dock = this.dock;
     dock.className = 'chart-grid';
     host.appendChild(dock);
+    host.appendChild(this.makeNote());
     this.cells = SERIES.map((spec) => this.makeCell(spec));
+    this.applySize();
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(dock);
   }
@@ -121,6 +143,14 @@ export class Charts {
     for (const cell of this.cells) if (cell.spec.key === 'analyticError') cell.label.title = hint;
   }
 
+  /** Sets how much of the stage the drawer takes, and keeps the plots filling it. */
+  setSize(size: number): void {
+    const clamped = clampDrawer(size);
+    if (clamped === this.settings.size) return;
+    this.settings.size = clamped;
+    this.applySize();
+  }
+
   /** Redraws what changed. Call about ten times a second. */
   update(): void {
     const { settings, sampler } = this;
@@ -137,14 +167,16 @@ export class Charts {
     const relayout = layout !== this.drawnLayout;
     if (relayout) {
       this.drawnLayout = layout;
-      this.cells.forEach((cell) => (cell.root.style.display = this.isShown(cell) ? 'block' : 'none'));
+      this.cells.forEach((cell) => (cell.root.style.display = this.isShown(cell) ? '' : 'none'));
       this.resize();
     }
 
-    const text = this.caption();
+    // The note under the plots speaks of the energy chart: only while that one is open.
+    const energyShown = this.settings.show.energyError;
+    const text = energyShown ? `Energy error: ${this.caption()}` : '';
     if (text !== this.captionText) {
       this.captionText = text;
-      for (const cell of this.cells) if (cell.caption) cell.caption.textContent = text;
+      this.noteText.textContent = text;
     }
 
     const twinVersion = this.twin()?.version ?? -1;
@@ -160,7 +192,45 @@ export class Charts {
     this.dock.remove();
   }
 
-  /** The drawer's header: its title, a toggle per chart, a link to how to read them, and a close button. */
+  /** The drawer's top edge, a handle to drag: the same kind of rule as the side panel's. */
+  private makeHandle(): void {
+    const handle = this.handle;
+    handle.className = 'drawer-resizer';
+    handle.tabIndex = 0;
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-orientation', 'horizontal');
+    handle.setAttribute('aria-label', 'Resize the charts');
+    handle.setAttribute('aria-valuemin', String(Math.round(DRAWER_MIN * 100)));
+    handle.setAttribute('aria-valuemax', String(Math.round(DRAWER_MAX * 100)));
+    handle.title = 'Drag to resize the charts (double-click to reset)';
+    handle.addEventListener('pointerdown', (down) => {
+      down.preventDefault();
+      handle.setPointerCapture(down.pointerId);
+      handle.classList.add('dragging');
+      const stage = this.drawer.parentElement;
+      const move = (event: PointerEvent): void => {
+        const rect = stage?.getBoundingClientRect();
+        if (rect && rect.height > 0) this.setSize((rect.bottom - event.clientY) / rect.height);
+      };
+      const up = (): void => {
+        handle.classList.remove('dragging');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    });
+    handle.addEventListener('dblclick', () => this.setSize(DRAWER_DEFAULT));
+    handle.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      this.setSize(this.settings.size + (event.key === 'ArrowUp' ? HANDLE_STEP : -HANDLE_STEP));
+    });
+  }
+
+  /** The drawer's header: its title, a toggle per chart, the height, and a close button. */
   private makeHeader(): HTMLElement {
     const header = document.createElement('div');
     header.className = 'drawer-head';
@@ -183,12 +253,35 @@ export class Charts {
       this.chips.set(spec.key, chip);
       chips.appendChild(chip);
     }
-    const learn = document.createElement('a');
-    learn.className = 'learn-link';
-    learn.href = 'learn.html#conservation-laws';
-    learn.target = '_blank';
-    learn.rel = 'noopener';
-    learn.textContent = 'How to read these →';
+
+    const size = document.createElement('label');
+    size.className = 'drawer-size';
+    const caption = document.createElement('span');
+    caption.className = 'bar-caption';
+    caption.textContent = 'Height';
+    const slider = this.slider;
+    slider.type = 'range';
+    slider.className = 'bar-range';
+    slider.min = String(DRAWER_MIN);
+    slider.max = String(DRAWER_MAX);
+    slider.step = '0.01';
+    slider.setAttribute('aria-label', 'Height of the charts, as a share of the view');
+    slider.addEventListener('input', () => this.setSize(Number(slider.value)));
+    size.append(caption, slider);
+
+    const expand = this.expand;
+    expand.type = 'button';
+    expand.className = 'icon-button';
+    expand.addEventListener('click', () => {
+      if (this.settings.size >= DRAWER_LARGE) {
+        this.setSize(this.sizeBeforeExpand ?? DRAWER_DEFAULT);
+        this.sizeBeforeExpand = null;
+      } else {
+        this.sizeBeforeExpand = this.settings.size;
+        this.setSize(0.78);
+      }
+    });
+
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'icon-button';
@@ -199,8 +292,35 @@ export class Charts {
       this.settings.visible = false;
       this.update();
     });
-    header.append(title, chips, learn, close);
+    header.append(title, chips, size, expand, close);
     return header;
+  }
+
+  /** Under the plots: what to expect of the energy error, and the way to the explanation. */
+  private makeNote(): HTMLElement {
+    const note = this.note;
+    note.className = 'chart-note';
+    this.noteText.className = 'chart-note-text';
+    const learn = document.createElement('a');
+    learn.className = 'learn-link';
+    learn.href = learnHref('conservation-laws');
+    learn.textContent = 'How to read these →';
+    note.append(this.noteText, learn);
+    return note;
+  }
+
+  /** The drawer's height, in the page and in the controls that show it. */
+  private applySize(): void {
+    const { size } = this.settings;
+    this.drawer.style.setProperty('--drawer-size', String(size));
+    this.slider.value = String(size);
+    this.handle.setAttribute('aria-valuenow', String(Math.round(size * 100)));
+    const expanded = size >= DRAWER_LARGE;
+    this.expand.setAttribute('aria-label', expanded ? 'Make the charts shorter' : 'Make the charts taller');
+    this.expand.title = expanded ? 'Back to the height before (the drawer was made tall)' : 'Make the charts tall: a larger plot for each';
+    this.expand.innerHTML = expanded
+      ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 10.5h10M5.5 13l2.5-2.5L10.5 13M3 5.5h10M5.5 3L8 5.5 10.5 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M5.5 5.5L8 3l2.5 2.5M5.5 10.5L8 13l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
 
   private isShown(cell: Cell): boolean {
@@ -211,40 +331,42 @@ export class Charts {
   private makeCell(spec: SeriesSpec): Cell {
     const root = document.createElement('div');
     root.className = 'chart-cell';
-    const label = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'chart-head';
+    const label = document.createElement('span');
     label.className = 'chart-label';
     label.textContent = spec.label;
     label.title = spec.hint;
-    root.appendChild(label);
+    // Where the pointer is: the time, and this chart's value then.
+    const readout = document.createElement('span');
+    readout.className = 'chart-readout';
+    head.append(label, readout);
+    root.appendChild(head);
     const holder = document.createElement('div');
+    holder.className = 'chart-plot';
     root.appendChild(holder);
-    let caption: HTMLDivElement | null = null;
-    if (spec.key === 'energyError') {
-      caption = document.createElement('div');
-      caption.className = 'chart-caption';
-      root.appendChild(caption);
-    }
     this.dock.appendChild(root);
 
     const axis = {
       stroke: INK_3,
       grid: { stroke: RULE, width: 1 },
       ticks: { stroke: RULE_STRONG, width: 1 },
-      font: '10.5px "Archivo Variable", system-ui, sans-serif',
+      font: '11px "Archivo Variable", system-ui, sans-serif',
     };
     const plot = new uPlot(
       {
         width: 260,
-        height: CHART_HEIGHT,
+        height: 120,
         legend: { show: false },
-        cursor: { show: false },
+        // A vertical line only, moving in every plot at once; no selection, no points.
+        cursor: { x: true, y: false, drag: { x: false, y: false, setScale: false }, points: { show: false }, sync: { key: CURSOR_SYNC, scales: ['x', null] } },
         padding: [6, 8, 0, 0],
         scales: { x: { time: false }, y: spec.log ? { distr: 3, log: 10 } : { distr: 1 } },
         axes: [
-          { ...axis, size: 22 },
+          { ...axis, size: 24 },
           {
             ...axis,
-            size: 54,
+            size: 56,
             ...(spec.log && { splits: decadeSplits(4) }),
             // uPlot passes null for ticks it has thinned out.
             values: (_u, ticks) => ticks.map((v) => (v == null ? '' : spec.log ? v.toExponential(0) : formatLinear(v))),
@@ -255,18 +377,45 @@ export class Charts {
           { stroke: INK, width: 1.4, points: { show: false } },
           { stroke: INK_2, width: 1.2, dash: [5, 4], show: false, points: { show: false } },
         ],
-        hooks: { draw: [(u) => this.drawMarkers(u)] },
+        hooks: { draw: [(u) => this.drawMarkers(u)], setCursor: [(u) => this.showReadout(u, spec, readout)] },
       },
       [[], [], []],
       holder,
     );
-    return { spec, root, label, caption, plot, y: new Float64Array(0), y2: new Float64Array(0) };
+    return { spec, root, label, readout, holder, plot, y: new Float64Array(0), y2: new Float64Array(0) };
   }
 
+  /** "t 3.21 · 1.2e-6" while the pointer is over a plot, nothing otherwise. */
+  private showReadout(u: uPlot, spec: SeriesSpec, readout: HTMLElement): void {
+    const i = u.cursor.idx;
+    const x = i == null ? undefined : u.data[0][i];
+    const y = i == null ? undefined : u.data[1][i];
+    if (x == null || y == null) {
+      readout.textContent = '';
+      return;
+    }
+    readout.textContent = `t ${+x.toPrecision(4)} · ${spec.log ? (y <= FLOOR ? '0' : y.toExponential(2)) : +y.toPrecision(4)}`;
+  }
+
+  /** Lays the plots out in the drawer: columns and rows from its size, each plot as tall as its row allows. */
   private resize(): void {
-    const width = Math.max(120, Math.floor(this.dock.firstElementChild?.clientWidth ?? 260));
-    for (const cell of this.cells) {
-      if (cell.root.style.display !== 'none') cell.plot.setSize({ width: cell.root.clientWidth || width, height: CHART_HEIGHT });
+    const { dock } = this;
+    const width = dock.clientWidth;
+    const height = dock.clientHeight;
+    if (width === 0 || height === 0) return;
+    const shown = this.cells.filter((cell) => this.isShown(cell));
+    if (shown.length === 0) return;
+    const grid = chartGrid(shown.length, width, height);
+    dock.style.gridTemplateColumns = `repeat(${grid.cols}, minmax(0, 1fr))`;
+    dock.style.gridAutoRows = `${Math.floor(grid.cellHeight)}px`;
+    for (const [at, cell] of shown.entries()) {
+      cell.root.classList.toggle('row-start', at % grid.cols === 0);
+      cell.root.classList.toggle('row-later', at >= grid.cols);
+    }
+    for (const cell of shown) {
+      const w = Math.max(120, cell.holder.clientWidth);
+      const h = Math.max(60, cell.holder.clientHeight);
+      cell.plot.setSize({ width: w, height: h });
     }
   }
 

@@ -2,20 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=1280" />
     <link rel="icon" href="data:," />
-    <title>Learn | 3-Body Integrator Explorer</title>
+    <title>Learn | Three-body sandbox</title>
     <style>
-      /* Before the stylesheet arrives: the dark page, not a white flash. */
       html,
       body {
         margin: 0;
         background: #0d0d0f;
       }
     </style>
+    <!-- The Learn page is a page of the app now (index.html#/learn): old links to this file land there. -->
+    <script>
+      location.replace('./#/learn' + (location.hash.length > 1 ? '/' + location.hash.slice(1) : ''));
+    </script>
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/learn/main.ts"></script>
+    <p style="color: #e6e3dc; font: 16px system-ui; padding: 24px">
+      The Learn page is part of the app now: <a href="./#/learn" style="color: inherit">open it here</a>.
+    </p>
   </body>
 </html>

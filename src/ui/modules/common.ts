@@ -1,5 +1,6 @@
 import type { BindingApi, BladeApi, FolderApi } from '@tweakpane/core';
 import { Pane } from 'tweakpane';
+import { learnHref } from '../../app/router';
 import { el } from '../dom';
 
 // What the modules share: Tweakpane inside a card, formats, menus, and small bits of HTML.
@@ -64,12 +65,10 @@ export function prose(parent: HTMLElement, text = '', className = 'module-prose'
   return p;
 }
 
-/** A link to a section of the Learn page, opened in a new tab so the run keeps going. */
+/** A link to a section of the Learn page. The run holds where it is and carries on when the reader comes back. */
 export function learnLink(parent: HTMLElement, text: string, section = ''): HTMLAnchorElement {
   const a = el('a', 'learn-link');
-  a.href = `learn.html${section ? `#${section}` : ''}`;
-  a.target = '_blank';
-  a.rel = 'noopener';
+  a.href = learnHref(section);
   a.textContent = text;
   parent.appendChild(a);
   return a;

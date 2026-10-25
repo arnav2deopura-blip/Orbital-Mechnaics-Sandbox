@@ -7,10 +7,11 @@ import type { Charts } from './charts';
 import { INTEGRATOR_OPTIONS } from './modules/common';
 import { chooseIntegrator, integratorChoice } from './modules/method';
 import type { Shell } from './shell';
-import { el, NARROW_QUERY } from './shell';
+import { el } from './shell';
 
-// The top bar: what is always needed (the preset, play and pause, speed, the method, the time and
-// the state of the run), and the switches for the rest (the charts, the modules, the Learn page).
+// The instrument bar: what is always needed (the preset, play and pause, speed, the method, the
+// time and the state of the run), and the switches for the rest (the charts, the module panel).
+// The page switch (Simulator, Learn) and the arrangements are in the masthead above it.
 
 const ICONS = {
   play: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" fill="currentColor"/></svg>',
@@ -19,7 +20,6 @@ const ICONS = {
   reset: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8a4.5 4.5 0 1 0 1.4-3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3 2.8v3.4h3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   charts: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 13.5h11M4 11V7.5M7 11V4.5M10 11V8M13 11V6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   modules: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 2.5v11" stroke="currentColor" stroke-width="1.4"/></svg>',
-  learn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.2c2-.9 4-.9 6 .4 2-1.3 4-1.3 6-.4v8.4c-2-.9-4-.9-6 .4-2-1.3-4-1.3-6-.4z M8 4.6v8.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
 };
 
 /** Menu groups for the presets: the classics, the hierarchical systems, the Šuvakov family, and the sandbox. */
@@ -52,10 +52,6 @@ function labelled(text: string, control: HTMLElement, className = 'bar-field'): 
 export function createTopBar(shell: Shell, controller: Controller, charts: Charts): () => void {
   const bar = shell.topbar;
   const { sim, loop } = controller;
-
-  const brand = el('a', 'brand');
-  brand.href = 'index.html';
-  brand.innerHTML = '<span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="brand-name">Three-body sandbox</span>';
 
   // ---- bodies: two or three ---------------------------------------------------------------
   const bodies = el('div', 'segmented');
@@ -174,20 +170,13 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
     charts.update();
     refresh();
   });
-  const modulesButton = button('bar-button', `${ICONS.modules}<span>Modules</span>`, 'Modules', 'Choose which modules are in the side panel');
-  modulesButton.setAttribute('aria-haspopup', 'true');
-  modulesButton.setAttribute('aria-expanded', 'false');
-  const menu = buildModulesMenu(shell, modulesButton);
-  const learn = el('a', 'bar-button learn-button');
-  learn.href = 'learn.html';
-  learn.target = '_blank';
-  learn.rel = 'noopener';
-  learn.innerHTML = `${ICONS.learn}<span>Learn how it works</span>`;
-  learn.title = 'Plain-language explanations of every method, chart and preset, with links back here (opens a new tab)';
+  const modulesToggle = button('bar-button toggle', `${ICONS.modules}<span>Modules</span>`, 'Show the module panel', 'Show or hide the module panel on the right (M)');
+  modulesToggle.addEventListener('click', () => {
+    shell.setDockHidden(!shell.dockHidden);
+    refresh();
+  });
   const switches = el('div', 'bar-group switches');
-  const menuHost = el('div', 'menu-host');
-  menuHost.append(modulesButton, menu);
-  switches.append(chartsToggle, menuHost, learn);
+  switches.append(chartsToggle, modulesToggle);
 
   const main = el('div', 'bar-main');
   // Not a <label>: a click on its caption would press the first segment.
@@ -198,11 +187,13 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
   bodies.setAttribute('aria-labelledby', bodiesCaption.id);
   bodiesField.append(bodiesCaption, bodies);
   main.append(bodiesField, labelled('Preset', preset), transport, speedLabel, labelled('Method', method));
-  bar.append(brand, main, switches);
+  bar.append(main, switches);
 
-  // Space plays and pauses, C shows the charts: not while typing in a field.
+  // Space plays and pauses, C shows the charts, M the module panel, F puts everything away but the
+  // orbits (and brings it back): not while typing in a field, nor on the Learn page.
   window.addEventListener('keydown', (event) => {
     const target = event.target as HTMLElement | null;
+    if (document.documentElement.dataset.page === 'learn') return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (target && (target.isContentEditable || /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(target.tagName))) return;
     if (event.key === ' ') {
@@ -210,6 +201,11 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
       play.click();
     } else if (event.key === 'c' || event.key === 'C') {
       chartsToggle.click();
+    } else if (event.key === 'm' || event.key === 'M') {
+      modulesToggle.click();
+    } else if (event.key === 'f' || event.key === 'F') {
+      shell.toggleOrbitsOnly();
+      refresh();
     }
   });
 
@@ -254,88 +250,10 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
 
     chartsToggle.setAttribute('aria-pressed', String(charts.settings.visible));
     chartsToggle.classList.toggle('on', charts.settings.visible);
+    modulesToggle.setAttribute('aria-pressed', String(!shell.dockHidden));
+    modulesToggle.classList.toggle('on', !shell.dockHidden);
   }
   return refresh;
-}
-
-function buildModulesMenu(shell: Shell, opener: HTMLButtonElement): HTMLElement {
-  const menu = el('div', 'menu');
-  menu.hidden = true;
-  menu.setAttribute('role', 'dialog');
-  menu.setAttribute('aria-label', 'Modules');
-  const heading = el('p', 'menu-heading');
-  heading.textContent = 'Show in the side panel';
-  menu.appendChild(heading);
-  const list = el('div', 'menu-list');
-  menu.appendChild(list);
-  const panelToggle = el('label', 'menu-item menu-panel');
-  const panelBox = el('input');
-  panelBox.type = 'checkbox';
-  const panelText = el('span');
-  panelText.innerHTML = '<b>Side Panel</b><small>Hide it to give the view the whole width</small>';
-  panelToggle.append(panelBox, panelText);
-  panelBox.addEventListener('change', () => shell.setDockHidden(!panelBox.checked));
-  const foot = el('div', 'menu-foot');
-  const resetLayout = el('button', 'text-button');
-  resetLayout.type = 'button';
-  resetLayout.textContent = 'Reset layout';
-  resetLayout.addEventListener('click', () => shell.resetLayout());
-  foot.appendChild(resetLayout);
-  menu.append(foot);
-
-  const boxes = new Map<string, HTMLInputElement>();
-  const fill = (): void => {
-    if (boxes.size === 0) {
-      for (const spec of shell.modules) {
-        const item = el('label', 'menu-item');
-        const box = el('input');
-        box.type = 'checkbox';
-        box.addEventListener('change', () => shell.setShown(spec.id, box.checked));
-        const text = el('span');
-        const title = el('b');
-        title.textContent = spec.title;
-        const summary = el('small');
-        summary.textContent = spec.summary;
-        text.append(title, summary);
-        item.append(box, text);
-        list.appendChild(item);
-        boxes.set(spec.id, box);
-      }
-      // The last cell of the grid: whether the side panel shows at all.
-      list.appendChild(panelToggle);
-    }
-    for (const [id, box] of boxes) box.checked = shell.isShown(id);
-    panelBox.checked = !shell.dockHidden;
-  };
-  shell.onChange(() => {
-    if (!menu.hidden) fill();
-  });
-
-  const close = (): void => {
-    menu.hidden = true;
-    opener.setAttribute('aria-expanded', 'false');
-  };
-  opener.addEventListener('click', () => {
-    if (!menu.hidden) return close();
-    // On a phone the panel is a sheet that starts put away: this button is how to get it back.
-    if (matchMedia(NARROW_QUERY).matches && shell.dockHidden) {
-      shell.setDockHidden(false);
-      return;
-    }
-    fill();
-    menu.hidden = false;
-    opener.setAttribute('aria-expanded', 'true');
-  });
-  document.addEventListener('pointerdown', (event) => {
-    if (!menu.hidden && !menu.contains(event.target as Node) && !opener.contains(event.target as Node)) close();
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !menu.hidden) {
-      close();
-      opener.focus();
-    }
-  });
-  return menu;
 }
 
 /** "Kepler orbit · eccentricity 0.50 · mass ratio 0.30 · IAS15": the figure's caption. */

@@ -134,7 +134,7 @@ describe('integrator cards', () => {
     expect(card).not.toBeNull();
     expect(card!.idea.length).toBeGreaterThan(30);
     expect(card!.strengths.length).toBeGreaterThan(30);
-    expect(card!.learnHref).toMatch(/^learn\.html#[a-z0-9-]+$/);
+    expect(card!.learnHref).toMatch(/^#\/learn\/[a-z0-9-]+$/);
     expect(cardText(card!)).not.toMatch(/[$*`[\]]/); // plain text: no math, markdown or link syntax
   });
 
@@ -148,8 +148,8 @@ describe('integrator cards', () => {
   });
 
   it('puts the Learn anchors where the Learn page puts its sections: the file name without its number', () => {
-    expect(cardFor('wh')!.learnHref).toBe('learn.html#wisdom-holman');
-    expect(cardFor('ias15')!.learnHref).toBe('learn.html#ias15');
+    expect(cardFor('wh')!.learnHref).toBe('#/learn/wisdom-holman');
+    expect(cardFor('ias15')!.learnHref).toBe('#/learn/ias15');
   });
 });
 

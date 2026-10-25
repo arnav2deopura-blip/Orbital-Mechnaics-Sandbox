@@ -17,6 +17,7 @@ import { fixed, learnLink, paneIn, prose, REFRESH_MS, scientific, setTitle } fro
 export function numbersModule(controller: Controller): ModuleSpec {
   return {
     id: 'numbers',
+    group: 'analysis',
     title: 'Live Numbers',
     summary: 'Energy and momentum errors, closest approach, step size and cost, as they happen',
     shownByDefault: true,
@@ -46,6 +47,7 @@ export function numbersModule(controller: Controller): ModuleSpec {
 export function exportModule(controller: Controller): ModuleSpec {
   return {
     id: 'export',
+    group: 'analysis',
     title: 'Chart Data & Export',
     summary: 'How often the charts sample, and CSV downloads',
     shownByDefault: false,
@@ -86,6 +88,7 @@ const SWEEP_METHODS = [
 export function batchModule(controller: Controller, view: BatchView): ModuleSpec {
   return {
     id: 'batch',
+    group: 'analysis',
     title: 'Batch Jobs',
     summary: 'Convergence sweeps, fast-forward and a Lyapunov estimate, run in the background',
     shownByDefault: false,
@@ -210,6 +213,7 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
 export function performanceModule(controller: Controller, view: SceneView): ModuleSpec {
   return {
     id: 'performance',
+    group: 'view',
     title: 'Performance',
     summary: 'Frame rate, time spent simulating and drawing, and auto quality',
     shownByDefault: false,

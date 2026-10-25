@@ -73,7 +73,7 @@ components:
 
 The simulator is laid out like a figure in a journal beside its specification sheet. The 3D view is the plate: a night sky with a caption and a large clock, never a card. Beside it runs a narrow column of ruled sections, each a module of controls. Along the top, one row of ruled cells holds the always-needed controls. Hierarchy comes from type size, weight and width against dense small text, and from 1px rules, not from fills, shadows or color.
 
-The mode is Operate, so familiar affordances stay familiar: buttons look like buttons, selects like selects. The Learn page is Read mode and uses the same tokens with a serif reading column and oversized condensed chapter titles.
+The mode is Operate, so familiar affordances stay familiar: buttons look like buttons, selects like selects. The Learn page is Read mode and uses the same tokens with a serif reading column and oversized condensed chapter titles. Both are pages of one app, switched from the masthead.
 
 **Key Characteristics:**
 - Flat and ruled: no cards, shadows, gradients, glass or glow. Radius is 2px at most.
@@ -123,15 +123,19 @@ None. Depth is a 1px rule or a step in ground (Ground, Raised, Field). The Modul
 - **Bar cells:** a caption above, the value below in 15px/600, ruled off by 1px verticals. Selects are borderless.
 - **Buttons:** 32px, 1px Rule-strong outline, 2px radius. The primary (Play while paused) is filled Vermilion. Hover lifts the border to Ink 3.
 - **Bodies switch:** a 24px segmented control, the selected segment filled Ink.
-- **Tabs (Charts, Modules):** flat cells, the open one underlined 2px in Vermilion.
+- **Tabs (pages, panel groups, Charts and Modules switches):** flat cells, the open one underlined 2px in Vermilion.
 - **Module sections:** a 16px title with a chevron and a close, a rule between sections, no background.
 - **Banners:** a full-width strip across the top of the plate, a title column and a text column, a square the color of the tone beside the title.
-- **Menu:** a ruled two-column sheet of checkbox rows.
-- **Charts:** Ink lines on Ground, decade grid lines only, Vermilion event marks.
+- **Menus:** ruled sheets hung from a bar: the module chooser is one column of checkbox rows grouped by tab; the Layout menu is four rows, each with a line sketch of the page it makes and a tick on the current one.
+- **Charts:** Ink lines on Ground, decade grid lines only, Vermilion event marks, and a 1px Ink 3 line that follows the pointer across every plot at once, with the time and value in each plot's title row.
 
 ## Layout
 
-Asymmetric by design: plate about two thirds, column 380px (resizable), bar 56px. Banners and the Learn page use a narrow left column for the title and a text column capped near 66ch. Below 760px the bar becomes two ruled rows with Play first, and the panel is a bottom sheet.
+For a desktop window, 1200 by 680 and up; below that the page scrolls rather than reflows. A 44px masthead runs across the top of both pages: the name, the pages as flat tabs (Simulator, Learn; the open one underlined 2px in Vermilion), and on the simulator a Layout menu at the far right. On the Plate color so it reads as a title strip.
+
+The simulator is asymmetric by design: the plate about two thirds, a tabbed specification column of 420px (resizable, 340-720), and a 64px instrument bar. The column has four tabs (System, Method, Analysis, View) and a chooser at the end of the strip; modules inside are 54px heads with 24px side padding. The charts drawer under the plate is a share of the plate's height set by the user (a 1px rule on its top edge that turns Vermilion on hover, and a Height slider in its header); its plots are laid out to fill it, one row when short and rows of larger plots when tall.
+
+The Learn page keeps the Read mode: a 288px contents column (grouped Foundations, The methods, Behaviour, Reference), then chapters of two columns each: the chapter title, large and condensed, stays at the left while a 74ch serif column scrolls at the right. Lists of short entries (presets, glossary, references) run across the full width in two columns.
 
 ## Do's and Don'ts
 

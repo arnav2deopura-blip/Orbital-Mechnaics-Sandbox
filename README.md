@@ -5,11 +5,16 @@ the exactly solvable two-body problem) and the numerical methods used to follow 
 **Wisdom-Holman** and **IAS15**. It runs in three dimensions, with a height for every body, and shows
 what each method gets right and wrong: conservation laws, order, cost, reversibility, chaos.
 
-Two pages:
+One app with two pages, switched from the masthead along the top (Back and Forward work, and every
+link between them stays in the same window):
 
-- `index.html`: the simulator.
-- `learn.html`: plain-language explanations, with equations under *Go deeper* and a *Try it* link
-  under each section that opens the simulator in a prepared state.
+- **Simulator** (`#/`, the default): the 3D view, the charts and the module panel.
+- **Learn** (`#/learn`, or `#/learn/<chapter>`): plain-language explanations, with equations under
+  *Go deeper* and a *Try it* link under each section that opens the simulator in a prepared state.
+  While you read, the run holds where it is and carries on when you come back.
+
+It is made for a desktop window (1200 by 680 or more) and does not reflow for a phone. The old
+`learn.html` address redirects to `#/learn`.
 
 ## Running it
 
@@ -34,12 +39,18 @@ Pages, Netlify, a school server) at any path. `.github/workflows/ci.yml` runs th
   triple with a massless third body: `SystemState.n` is 2, slot 2 stays zero for good, and the force
   kernel, diagnostics, events and renderer all stop at `n`. Every method can be checked against the
   exact Kepler orbit (the *Error against the exact Kepler solution* chart).
-- **Layout**: a top bar with the bodies switch, preset, play/pause, speed and method, plus switches for the charts
-  (or press `C`), the modules and the Learn page. The rest of the controls are modules in a side panel:
-  System, Method, Live Numbers, View, Time & Events, Bodies & Physics, Perturb (chaos), Compare,
-  Chart Data & Export, Batch Jobs and Performance. Each one can be folded or closed, and the Modules menu brings it back.
-  Which modules are open, the panel's width and the charts switch are remembered in the browser.
-  On a phone the panel is a sheet that slides up.
+- **Layout**: a masthead (the two pages, and a *Layout* menu), then an instrument bar with the bodies
+  switch, preset, play/pause, speed and method, and switches for the charts (`C`) and the module panel
+  (`M`). The rest of the controls are modules in a side panel with four tabs: System (System, Bodies &
+  Physics, Perturb), Method (Method, Time & Events), Analysis (Live Numbers, Compare, Batch Jobs, Chart
+  Data & Export) and View (View, Performance). Each module can be folded or closed, and the button at the
+  end of the tab strip brings back any of them.
+  The *Layout* menu arranges the page in one click: *Instrument* (everything), *Orbits and charts*,
+  *Orbits only* (`F`, and again to undo) and *Charts focus*. The charts drawer is as tall as you want it:
+  drag its top edge, or use the *Height* slider in its header. Taller drawers wrap the plots into rows
+  of larger plots, and hovering any plot draws a line at the same time in all of them, with the values.
+  Which modules are open, the panel's tab and width, and the charts' visibility and height are
+  remembered in the browser.
 - **Warnings**: when a system cannot work (it is unbound, two bodies start on top of each other and fall
   together, the step is too coarse) or has stopped working (a failed step, energy off by more than 10%,
   an escape, a body far off screen), a banner over the view says so in plain words, with buttons

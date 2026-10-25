@@ -1,4 +1,5 @@
 import type { Controller } from '../../app/controller';
+import { learnHref } from '../../app/router';
 import type { IntegratorId } from '../../sim/integrators/types';
 import { cardFor } from '../infoCards';
 import type { ModuleSpec } from '../shell';
@@ -24,6 +25,7 @@ export function chooseIntegrator(controller: Controller, choice: string): void {
 export function methodModule(controller: Controller): ModuleSpec {
   return {
     id: 'method',
+    group: 'method',
     title: 'Method',
     summary: 'The integrator, what it does, and its step size and limits',
     shownByDefault: true,
@@ -137,7 +139,7 @@ export function methodModule(controller: Controller): ModuleSpec {
           strengths.textContent = card ? `Strengths and weaknesses: ${card.strengths}` : '';
           cost.textContent = card ? `Cost: ${card.cost}` : '';
           use.textContent = card ? `Use it for: ${card.use}` : '';
-          learn.href = card?.learnHref ?? 'learn.html';
+          learn.href = card?.learnHref ?? learnHref();
           learn.textContent = card ? `Learn about ${card.title} →` : 'Learn about the methods →';
         }
         pane.refresh();
@@ -149,6 +151,7 @@ export function methodModule(controller: Controller): ModuleSpec {
 export function timeModule(controller: Controller): ModuleSpec {
   return {
     id: 'time',
+    group: 'method',
     title: 'Time & Events',
     summary: 'Run backward, return to the start, and stop at close encounters',
     shownByDefault: false,

@@ -1,5 +1,6 @@
 import type { Controller } from '../app/controller';
 import type { Fix, Issue } from '../app/health';
+import { learnHref } from '../app/router';
 import { findPreset } from '../presets';
 import { savePrefs } from './prefs';
 import type { Prefs } from './prefs';
@@ -97,9 +98,7 @@ export function createBanner(shell: Shell, controller: Controller, prefs: Prefs)
     }
     if (issue.learn) {
       const learn = el('a', 'learn-link banner-learn');
-      learn.href = `learn.html#${issue.learn}`;
-      learn.target = '_blank';
-      learn.rel = 'noopener';
+      learn.href = learnHref(issue.learn);
       learn.textContent = 'Why does this happen? →';
       actions.appendChild(learn);
     }
@@ -138,9 +137,7 @@ function welcomeCard(prefs: Prefs): HTMLElement {
     'The Learn page explains it all in plain language, with links that open each idea right here.</p>';
   const actions = el('div', 'banner-actions');
   const learn = el('a', 'banner-button primary');
-  learn.href = 'learn.html';
-  learn.target = '_blank';
-  learn.rel = 'noopener';
+  learn.href = learnHref();
   learn.textContent = 'Open the Learn page';
   const dismiss = el('button', 'banner-button');
   dismiss.type = 'button';
@@ -154,7 +151,7 @@ function welcomeCard(prefs: Prefs): HTMLElement {
   dismiss.addEventListener('click', done);
   actions.append(learn, dismiss);
   const hint = el('p', 'welcome-hint');
-  hint.textContent = 'Drag to orbit, scroll to zoom. Space plays and pauses, C shows the charts. Modules in the top bar opens more controls.';
+  hint.textContent = 'Drag to orbit, scroll to zoom. Space plays and pauses, C shows the charts, M the module panel, F the orbits alone.';
   card.append(actions, hint);
   return card;
 }

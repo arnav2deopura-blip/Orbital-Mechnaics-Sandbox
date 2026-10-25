@@ -1,5 +1,6 @@
 import type { BindingApi } from '@tweakpane/core';
 import type { Controller } from '../../app/controller';
+import { learnHref } from '../../app/router';
 import { captureState, shareUrl } from '../../app/urlState';
 import type { Preset } from '../../presets/schema';
 import type { SceneView } from '../../render/scene';
@@ -13,6 +14,7 @@ import { learnLink, paneIn, prose, REFRESH_MS, setTitle } from './common';
 export function systemModule(controller: Controller, view: SceneView): ModuleSpec {
   return {
     id: 'system',
+    group: 'system',
     title: 'System',
     summary: 'What this preset shows, its sliders, and a link to this run',
     shownByDefault: true,
@@ -34,7 +36,7 @@ export function systemModule(controller: Controller, view: SceneView): ModuleSpe
         about.textContent = preset.demonstrates;
         checked.textContent = preset.verified ? `Checked by a test: ${preset.verifiedBy ?? 'behaves as described'}.` : 'Not independently checked.';
         checked.classList.toggle('verified', preset.verified);
-        learn.href = `learn.html#preset-${preset.id}`;
+        learn.href = learnHref(`preset-${preset.id}`);
         for (const slider of sliders) slider.dispose();
         sliders = (preset.params ?? []).map((spec) => {
           const binding = params

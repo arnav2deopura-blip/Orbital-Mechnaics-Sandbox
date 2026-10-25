@@ -12,6 +12,7 @@ import { bodyOptions, INTEGRATOR_OPTIONS, learnLink, NUDGE_DIRECTIONS, paneIn, p
 export function bodiesModule(controller: Controller): ModuleSpec {
   return {
     id: 'bodies',
+    group: 'system',
     title: 'Bodies & Physics',
     summary: 'Edit each mass, position and velocity, tilt the system, G and softening',
     shownByDefault: false,
@@ -75,6 +76,7 @@ export function bodiesModule(controller: Controller): ModuleSpec {
 export function perturbModule(controller: Controller): ModuleSpec {
   return {
     id: 'perturb',
+    group: 'system',
     title: 'Perturb (chaos)',
     summary: 'Nudge one body by a tiny amount and watch what it changes',
     shownByDefault: false,
@@ -105,6 +107,7 @@ export function perturbModule(controller: Controller): ModuleSpec {
 export function compareModule(controller: Controller): ModuleSpec {
   return {
     id: 'compare',
+    group: 'analysis',
     title: 'Compare',
     summary: 'Run a nudged twin, or a second method, on top of this one',
     shownByDefault: false,

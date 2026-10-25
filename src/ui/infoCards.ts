@@ -1,3 +1,4 @@
+import { learnHref } from '../app/router';
 import { plainText, sections, titleOf } from '../learn/markdown';
 
 // Info cards (plan §11): what each method is, drawn from the same markdown the Learn page shows,
@@ -38,7 +39,7 @@ export function cardFor(method: string): InfoCard | null {
     strengths: plainText(s['strengths and weaknesses'] ?? ''),
     cost: plainText(s.cost ?? ''),
     use: plainText(s['when to use it'] ?? ''),
-    learnHref: `learn.html#${name.replace(/^\d+[a-z]?-/, '').replace(/\.md$/, '')}`,
+    learnHref: learnHref(name.replace(/^\d+[a-z]?-/, '').replace(/\.md$/, '')),
   };
 }
 
