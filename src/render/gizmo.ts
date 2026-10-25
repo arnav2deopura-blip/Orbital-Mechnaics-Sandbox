@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PlaneFrame } from './frame';
 
-/** Side of the square the gizmo is drawn in, and its distance from the corner, in CSS pixels. */
+/** Side of the square the gizmo is drawn in, and its distance from the top left corner, in CSS pixels. */
 const SIZE = 96;
 const MARGIN = 12;
 /** Where the label sits along its axis, past the tip. */
@@ -23,6 +23,7 @@ export class AxesGizmo {
   private readonly positions = new Float32Array(18);
   private readonly labels: HTMLDivElement[];
   private readonly viewport = new THREE.Vector4();
+  private readonly size = new THREE.Vector2();
   private readonly tip = new THREE.Vector3();
   private angular: boolean | null = null;
 
@@ -44,7 +45,7 @@ export class AxesGizmo {
       const label = document.createElement('div');
       label.style.cssText =
         'position:absolute;pointer-events:none;font:600 12px/1 ui-monospace,monospace;' +
-        `color:#${hex.toString(16)};transform:translate(-50%,50%);user-select:none`;
+        `color:#${hex.toString(16)};transform:translate(-50%,-50%);user-select:none`;
       host.appendChild(label);
       return label;
     });
@@ -74,16 +75,18 @@ export class AxesGizmo {
     this.labels.forEach((label, i) => {
       this.tip.set(axes[i][0], axes[i][1], axes[i][2]).multiplyScalar(LABEL_REACH).project(this.camera);
       label.style.left = `${MARGIN + (this.tip.x * 0.5 + 0.5) * SIZE}px`;
-      label.style.bottom = `${MARGIN + (this.tip.y * 0.5 + 0.5) * SIZE}px`;
+      label.style.top = `${MARGIN + (0.5 - this.tip.y * 0.5) * SIZE}px`;
     });
 
     const autoClear = renderer.autoClear;
     const scissorTest = renderer.getScissorTest();
     renderer.getViewport(this.viewport);
+    renderer.getSize(this.size);
+    const y = this.size.y - SIZE - MARGIN; // viewports count up from the bottom
     renderer.autoClear = false;
     renderer.setScissorTest(true);
-    renderer.setViewport(MARGIN, MARGIN, SIZE, SIZE);
-    renderer.setScissor(MARGIN, MARGIN, SIZE, SIZE);
+    renderer.setViewport(MARGIN, y, SIZE, SIZE);
+    renderer.setScissor(MARGIN, y, SIZE, SIZE);
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);
     renderer.setViewport(this.viewport);

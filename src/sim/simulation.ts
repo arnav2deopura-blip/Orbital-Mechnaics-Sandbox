@@ -1,3 +1,4 @@
+import { KeplerReference } from './analytic';
 import { shiftToComFrame } from './coords';
 import { createDiagnostics, createReference, measure } from './diagnostics';
 import type { Diagnostics, Reference } from './diagnostics';
@@ -5,6 +6,7 @@ import { minSeparationSquared } from './events';
 import { createIntegrator } from './integrators';
 import { IAS15 } from './integrators/ias15';
 import type { Integrator, IntegratorId, IntegratorParams } from './integrators/types';
+import { WH } from './integrators/wh';
 import { copyState, createCounters, createState, STATE_LEN } from './state';
 import type { CostCounters, SystemState } from './types';
 
@@ -73,6 +75,19 @@ export class Simulation {
   stopOnEncounter = false;
   /** The latest encounter, or null. Cleared by load() and reset(). */
   encounter: string | null = null;
+  /**
+   * What the integrator reports about its own health (plan §7.5): IAS15 reaching its minimum
+   * step or failing to converge, WH's Kepler solver failing. Null when all is well. Cleared by
+   * load(), reset() and setIntegrator().
+   */
+  warning: string | null = null;
+  /**
+   * Called with a short description when something worth marking on the charts happens: an
+   * encounter, or the first of each kind of integrator warning.
+   */
+  onEvent: ((message: string) => void) | null = null;
+  /** The exact solution, when one body is massless (plan §6), for the analytic error. Set by load(). */
+  private analytic: KeplerReference | null = null;
 
   /** What reset() returns to: the state at the last load(). */
   private readonly baseline = createState();
@@ -82,6 +97,11 @@ export class Simulation {
   /** Inside an encounter: it ends when the bodies are 20% beyond the radius, so one pass is one event. */
   private inEncounter = false;
   private stopRequested = false;
+  /** The integrator the health counters below were read from, and what they read when it was last checked. */
+  private healthOf: Integrator | null = null;
+  /** Whether that integrator has counters worth reading: 0 for the fixed-step methods, which keeps the hot path to a pointer compare. */
+  private healthKind = 0;
+  private readonly healthSeen = { minStep: 0, converge: 0, kepler: 0 };
   private readonly clock: () => number;
   private readonly result: AdvanceResult = { status: 'reached', steps: 0 };
 
@@ -107,6 +127,7 @@ export class Simulation {
     if (recenter) shiftToComFrame(this.state);
     this.reference = createReference(this.state, period);
     copyState(this.state, this.baseline);
+    this.analytic = KeplerReference.from(this.state);
     this.zeroCounters();
     this.restart();
   }
@@ -129,6 +150,7 @@ export class Simulation {
     next.setDirection(this.dir);
     this.integrator = next;
     this.failure = null;
+    this.resetHealth();
     this.rebase();
   }
 
@@ -143,6 +165,11 @@ export class Simulation {
   /** Magnitude of the step the next step() will try: params.dt, or the adaptive step IAS15 has settled on. */
   currentDt(): number {
     return this.integrator instanceof IAS15 ? this.integrator.dtNext : this.params.dt;
+  }
+
+  /** How far the true state is from the exact two-body solution, or NaN when there is none (no massless body, or softening). */
+  analyticError(): number {
+    return this.analytic ? this.analytic.error(this.state) : NaN;
   }
 
   /** Measures the true state into `diagnostics` (plan §6) and returns it. */
@@ -241,6 +268,7 @@ export class Simulation {
     this.counters.stepCount++;
     this.denseValid = this.integrator.dense !== undefined;
     if (this.encounterRadius > 0) this.checkEncounter();
+    this.checkHealth();
     this.onStep?.(state);
     return true;
   }
@@ -252,10 +280,51 @@ export class Simulation {
       if (this.inEncounter) return;
       this.inEncounter = true;
       this.encounter = `close encounter at t=${this.state.t.toPrecision(6)}, separation ${Math.sqrt(r2).toPrecision(3)}`;
+      this.onEvent?.('close encounter');
       if (this.stopOnEncounter) this.stopRequested = true;
     } else if (r2 > 1.44 * radius * radius) {
       this.inEncounter = false;
     }
+  }
+
+  /**
+   * Reads the integrator's own failure counters (plan §7.5). The first minimum-step hit or
+   * Kepler failure stops the run, like an encounter, and says so; later ones only update the
+   * count, so resuming does not stop again on every step. Failing to converge never stops it.
+   */
+  private checkHealth(): void {
+    const integrator = this.integrator;
+    if (integrator !== this.healthOf) this.resetHealth();
+    if (this.healthKind === 0) return;
+    const seen = this.healthSeen;
+    if (integrator instanceof IAS15) {
+      if (integrator.dtMinHits > seen.minStep) {
+        if (seen.minStep === 0) this.raise('IAS15 reached its minimum step: a close encounter it cannot resolve', true);
+        seen.minStep = integrator.dtMinHits;
+        this.warning = `IAS15 was held at its minimum step ${seen.minStep} time${seen.minStep === 1 ? '' : 's'}: close encounter unresolved`;
+      }
+      if (integrator.convergenceFailures > seen.converge) {
+        if (seen.converge === 0) this.raise('IAS15 corrector did not converge', false);
+        seen.converge = integrator.convergenceFailures;
+        this.warning ??= `IAS15 corrector did not converge ${seen.converge} time${seen.converge === 1 ? '' : 's'}`;
+      }
+    } else if (integrator instanceof WH && integrator.keplerFailures > seen.kepler) {
+      if (seen.kepler === 0) this.raise('the Kepler solver did not converge', true);
+      seen.kepler = integrator.keplerFailures;
+      this.warning = `Wisdom-Holman's Kepler solver failed to converge ${seen.kepler} time${seen.kepler === 1 ? '' : 's'}`;
+    }
+  }
+
+  private raise(message: string, stop: boolean): void {
+    this.onEvent?.(message);
+    if (stop) this.stopRequested = true;
+  }
+
+  private resetHealth(): void {
+    this.healthOf = this.integrator;
+    this.healthKind = this.integrator instanceof IAS15 || this.integrator instanceof WH ? 1 : 0;
+    this.healthSeen.minStep = this.healthSeen.converge = this.healthSeen.kepler = 0;
+    this.warning = null;
   }
 
   /** Re-initializes the integrator on the current state, without touching the reference. */
@@ -266,6 +335,7 @@ export class Simulation {
     this.encounter = null;
     this.inEncounter = false;
     this.stopRequested = false;
+    this.resetHealth();
     this.rebase();
   }
 

@@ -4,7 +4,10 @@ import { findPreset, PRESETS } from '../presets';
 import type { PlaneMode, SnapView } from '../render/frame';
 import type { CameraMode, SceneView } from '../render/scene';
 import type { IntegratorId } from '../sim/integrators/types';
+import { SERIES } from '../sim/sampler';
 import type { Axis, NudgeDirection } from '../sim/transforms';
+import { downloadText } from './charts';
+import type { Charts } from './charts';
 
 // tweakpane@4.0.5's typings extend FolderApi from @tweakpane/core, which it does not install, so
 // `Pane` has no folder methods as far as TypeScript can tell, though the runtime API is intact.
@@ -58,7 +61,12 @@ const INTEGRATOR_OPTIONS: Record<string, string> = {
 
 const BODY_OPTIONS: Record<string, number> = { 'Body 1': 0, 'Body 2': 1, 'Body 3': 2 };
 
-/** The panel re-reads its controls this often, since the simulation can pause itself. */
+/**
+ * The panel re-reads its controls this often, since the simulation can pause itself. Tweakpane
+ * answers a changed value by writing it back through the binding, so a setter on an object bound
+ * here must do nothing when it is given the value it already has: otherwise every programmatic
+ * change would be applied a second time (restarting an integrator, or re-baselining the errors).
+ */
 const REFRESH_MS = 250;
 
 const scientific = (value: number): string => value.toExponential(2);
@@ -70,11 +78,12 @@ const fixed = (digits: number) => (value: number): string => value.toFixed(digit
  * Controller. The view bindings edit view.settings directly, which SceneView reads every frame;
  * only changes that need work (a new trail length) call into the view.
  */
-export function createControlPanel(controller: Controller, view: SceneView, container?: HTMLElement): Pane {
+export function createControlPanel(controller: Controller, view: SceneView, charts: Charts, container?: HTMLElement): Pane {
   const pane = new Pane({ title: 'Three-body sandbox', container }) as Pane & FolderApi;
   const syncs: (() => void)[] = [];
   addPresetFolder(pane, controller);
   addSimulationFolders(pane, controller, syncs);
+  addChartsFolder(pane, controller, charts);
   addBodiesFolder(pane, controller);
   addPerturbFolder(pane, controller);
   addViewFolders(pane, view);
@@ -147,13 +156,14 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
 
   // Speed is in periods per second, so one slider suits every system. Log scale: the slider
   // holds the exponent. The range must cover every speed a preset recommends: a slider clamps
-  // what it shows, and writes the clamped value back.
+  // what it shows, and writes the clamped value back. It has no step either, which would round
+  // the exponent (a recommended 0.25 would come back as 0.252).
   const speed = {
     get periodsPerSecond(): number {
       return Math.log10(loop.settings.speed / sim.reference.period);
     },
     set periodsPerSecond(exponent: number) {
-      controller.setSpeed(10 ** exponent * sim.reference.period);
+      if (exponent !== this.periodsPerSecond) controller.setSpeed(10 ** exponent * sim.reference.period);
     },
   };
   setTitle(
@@ -161,7 +171,6 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       label: 'periods / s',
       min: -4,
       max: 3,
-      step: 0.01,
       format: (exponent: number) => (10 ** exponent).toPrecision(2),
     }),
     'Simulated time per real second, in periods of the system (T_char). Log scale.',
@@ -172,7 +181,7 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       return sim.direction;
     },
     set dir(sign: number) {
-      controller.setDirection(sign < 0 ? -1 : 1);
+      if (sign !== this.dir) controller.setDirection(sign < 0 ? -1 : 1);
     },
   };
   run.addBinding(direction, 'dir', { label: 'direction', options: { Forward: 1, Backward: -1 } });
@@ -185,6 +194,7 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       return sim.integrator.id === 'euler' && sim.integrator.symplectic ? 'symplectic-euler' : sim.integrator.id;
     },
     set id(choice: string) {
+      if (choice === this.id) return;
       if (choice === 'symplectic-euler') controller.setIntegrator('euler', true);
       else controller.setIntegrator(choice as IntegratorId);
     },
@@ -197,14 +207,13 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       return Math.log10(sim.params.dt / sim.reference.period);
     },
     set exponent(exponent: number) {
-      controller.setDt(10 ** exponent * sim.reference.period);
+      if (Math.abs(exponent - this.exponent) > 1e-9) controller.setDt(10 ** exponent * sim.reference.period);
     },
   };
   const dt = method.addBinding(stepSize, 'exponent', {
     label: 'dt',
     min: -5.5,
     max: -0.5,
-    step: 0.01,
     format: (exponent: number) => `T/${Math.round(10 ** -exponent)}`,
   });
   setTitle(dt, 'Step size as a fraction of T_char, the shortest orbital period. For IAS15 this is only the first guess.');
@@ -214,7 +223,7 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       return sim.params.centralBody ?? -1;
     },
     set body(value: number) {
-      controller.setCentralBody(value < 0 ? undefined : (value as 0 | 1 | 2));
+      if (value !== this.body) controller.setCentralBody(value < 0 ? undefined : (value as 0 | 1 | 2));
     },
   };
   const centralBinding = method.addBinding(central, 'body', {
@@ -230,7 +239,7 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       return Math.log10(ias.epsTol ?? 1e-9);
     },
     set exp(value: number) {
-      ias.epsTol = 10 ** value;
+      if (value !== this.exp) ias.epsTol = 10 ** value;
     },
   };
   const tolBinding = method.addBinding(tolerance, 'exp', {
@@ -247,7 +256,7 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       return value === undefined ? off : Math.log10(value / sim.reference.period);
     },
     set exp(value: number) {
-      ias[key] = value === off ? undefined : 10 ** value * sim.reference.period;
+      if (value !== this.exp) ias[key] = value === off ? undefined : 10 ** value * sim.reference.period;
     },
   });
   const dtMin = limit('dtMin', -12);
@@ -284,13 +293,13 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
       return sim.state.G;
     },
     set G(value: number) {
-      if (value > 0) controller.setG(value);
+      if (value > 0 && value !== sim.state.G) controller.setG(value);
     },
     get softening(): number {
       return Math.sqrt(sim.state.eps2);
     },
     set softening(value: number) {
-      if (value >= 0) controller.setSoftening(value);
+      if (value >= 0 && value !== this.softening) controller.setSoftening(value);
     },
   };
   setTitle(
@@ -327,6 +336,39 @@ function addSimulationFolders(pane: FolderApi, controller: Controller, syncs: ((
   watch('steps', 'steps', fixed(0));
   watch('forceEvals', 'force evals', fixed(0));
 }
+
+function addChartsFolder(pane: FolderApi, controller: Controller, charts: Charts): void {
+  const folder = pane.addFolder({ title: 'Charts', expanded: false });
+  folder.addBinding(charts.settings, 'visible', { label: 'show charts' });
+  for (const spec of SERIES) setTitle(folder.addBinding(charts.settings.show, spec.key, { label: shortLabel(spec.key) }), spec.hint);
+
+  const rate = {
+    get perPeriod(): number {
+      return Math.round(controller.sim.reference.period / controller.sampler.interval);
+    },
+    set perPeriod(count: number) {
+      if (count !== this.perPeriod) controller.setSamplesPerPeriod(count);
+    },
+  };
+  setTitle(
+    folder.addBinding(rate, 'perPeriod', { label: 'samples / T', min: 20, max: 2000, step: 10 }),
+    'How many points each chart takes per T_char of simulated time. Applies from now on.',
+  );
+  folder.addButton({ title: 'Clear history' }).on('click', () => controller.restartHistory());
+  folder.addButton({ title: 'Download CSV' }).on('click', () => downloadText('three-body-diagnostics.csv', controller.sampler.toCsv()));
+}
+
+const SHORT_LABELS: Record<string, string> = {
+  energyError: 'energy error',
+  angularMomentumError: 'L error',
+  momentumError: '|P| error',
+  comDrift: 'COM drift',
+  minSeparation: 'closest pair',
+  dt: 'step size',
+  forceEvals: 'force evals',
+  analyticError: 'vs exact Kepler',
+};
+const shortLabel = (key: string): string => SHORT_LABELS[key] ?? key;
 
 function addBodiesFolder(pane: FolderApi, controller: Controller): void {
   const folder = pane.addFolder({ title: 'Bodies (edit z here)', expanded: false });

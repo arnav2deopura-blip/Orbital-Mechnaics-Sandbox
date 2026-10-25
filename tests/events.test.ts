@@ -126,7 +126,7 @@ describe('close encounters in Simulation', () => {
     const sim = new Simulation(s, { integrator: 'ias15', params: { dt: T / 100 } });
     sim.encounterRadius = 0.2;
     sim.stopOnEncounter = true;
-    const loop = new SimLoop(sim, { speed: T });
+    const loop = new SimLoop(sim, { speed: T, budgetMs: 1e9 }); // no wall-clock limit: the test must not depend on machine load
     const drawn = loop.frame(1);
     expect(loop.settings.running).toBe(false);
     expect(drawn.t).toBeCloseTo(sim.state.t, 12);

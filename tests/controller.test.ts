@@ -419,3 +419,67 @@ describe('Controller: parametric presets', () => {
     }
   });
 });
+
+describe('Controller: the diagnostic history', () => {
+  it('starts with the initial state and fills as the simulation runs', () => {
+    const { controller, view } = setup();
+    expect(controller.sampler.length).toBe(1);
+    run(view, 1);
+    expect(controller.sampler.length).toBeGreaterThan(10);
+    expect(controller.sampler.interval).toBeCloseTo(FIGURE_EIGHT.period! / 200, 12);
+  });
+
+  it('restarts on reset, edit and loading a preset, which re-baseline the errors', () => {
+    const { controller, view } = setup();
+    run(view, 1);
+    controller.reset();
+    expect(controller.sampler.length).toBe(1);
+    run(view, 0.5);
+    controller.draft[2].pos.z = 0.3;
+    controller.applyDraft();
+    expect(controller.sampler.length).toBe(1);
+    run(view, 0.2); // paused: nothing is added
+    expect(controller.sampler.length).toBe(1);
+    controller.play();
+    run(view, 0.5);
+    controller.loadPreset(FIGURE_EIGHT);
+    expect(controller.sampler.length).toBe(1);
+    expect(controller.sampler.markers).toHaveLength(0);
+  });
+
+  it('marks an integrator switch, a reversal and a close encounter on the time axis', () => {
+    const { controller, view } = setup();
+    run(view, 0.3);
+    controller.setIntegrator('rk4');
+    controller.setDirection(-1);
+    controller.setDirection(1);
+    controller.setEncounter(0.9, false);
+    run(view, 6);
+    expect(controller.sampler.markers.map((m) => m.label)).toEqual(['rk4', 'time reversed', 'time forward', 'close encounter']);
+  });
+
+  it('does not mark a direction that did not change', () => {
+    const { controller } = setup();
+    controller.setDirection(1);
+    expect(controller.sampler.markers).toHaveLength(0);
+  });
+
+  it('changes the sampling rate without losing the history', () => {
+    const { controller, view } = setup();
+    run(view, 1);
+    const n = controller.sampler.length;
+    controller.setSamplesPerPeriod(50);
+    expect(controller.sampler.length).toBe(n);
+    expect(controller.sampler.interval).toBeCloseTo(FIGURE_EIGHT.period! / 50, 12);
+    controller.reset();
+    expect(controller.sampler.interval).toBeCloseTo(FIGURE_EIGHT.period! / 50, 12); // kept across a restart
+  });
+
+  it('shows integrator warnings in the status', () => {
+    const { controller, view } = setup();
+    controller.loadPreset(PRESETS.find((p) => p.id === 'kepler')!, { params: { e: 0.9 } });
+    controller.sim.params.dtMin = controller.sim.reference.period / 4;
+    run(view, 2);
+    expect(controller.readout.status).toMatch(/minimum step/);
+  });
+});

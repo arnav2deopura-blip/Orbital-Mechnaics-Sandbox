@@ -4,6 +4,7 @@ import type { ParamValues, Preset } from '../presets/schema';
 import { angularMomentumError, characteristicTime, energyError, momentumError, systemSize } from '../sim/diagnostics';
 import { hasEscaped } from '../sim/events';
 import type { IntegratorId } from '../sim/integrators/types';
+import { DEFAULT_SAMPLES_PER_PERIOD, Sampler } from '../sim/sampler';
 import { Simulation } from '../sim/simulation';
 import { snapshot } from '../sim/state';
 import { nudge as nudgeState, rotateState } from '../sim/transforms';
@@ -66,6 +67,8 @@ export interface LoadPresetOptions {
 export class Controller {
   readonly sim: Simulation;
   readonly loop: SimLoop;
+  /** The diagnostic history behind the charts. Restarted by every load, reset and edit. */
+  readonly sampler = new Sampler();
   readonly readout: Readout = {
     t: 0,
     energyError: 0,
@@ -93,6 +96,7 @@ export class Controller {
 
   private readonly view: ViewPort;
   private sinceReadout = 0;
+  private samplesPerPeriod = DEFAULT_SAMPLES_PER_PERIOD;
 
   constructor(view: ViewPort, preset: Preset, options: LoadPresetOptions = {}, clock?: () => number) {
     this.view = view;
@@ -100,7 +104,11 @@ export class Controller {
     // loadPreset() below sets the real dt and loads the real state; this one only has to be valid.
     this.sim = new Simulation(instantiate(preset).state, { integrator: preset.recommended.integrator, params: { dt: 1 }, clock });
     this.loop = new SimLoop(this.sim, {}, clock);
-    this.sim.onStep = (s) => view.recordSample(s);
+    this.sim.onStep = (s) => {
+      view.recordSample(s);
+      this.sampler.record(this.sim);
+    };
+    this.sim.onEvent = (message) => this.sampler.mark(message);
     this.loadPreset(preset, options);
   }
 
@@ -148,6 +156,7 @@ export class Controller {
     this.view.setCameraMode(recommended.camera?.focus ?? 'com');
     this.view.setSystemScale(instance.size ?? recommended.camera?.size ?? systemSize(sim.state));
     this.readDraft();
+    this.restartHistory();
     this.updateReadout();
   }
 
@@ -174,6 +183,7 @@ export class Controller {
     this.sim.reset();
     this.view.clearTrails();
     this.readDraft();
+    this.restartHistory();
     this.updateReadout();
   }
 
@@ -182,6 +192,7 @@ export class Controller {
   }
 
   setDirection(sign: 1 | -1): void {
+    if (sign !== this.sim.direction) this.sampler.mark(sign < 0 ? 'time reversed' : 'time forward');
     this.sim.setDirection(sign);
   }
 
@@ -195,6 +206,7 @@ export class Controller {
     this.sim.load(next, { recenter });
     this.view.clearTrails();
     this.readDraft();
+    this.restartHistory();
     this.updateReadout();
   }
 
@@ -244,6 +256,7 @@ export class Controller {
   setIntegrator(id: IntegratorId, symplecticEuler = false): void {
     if (id === 'wh' && this.sim.state.eps2 !== 0) this.setSoftening(0);
     this.sim.setIntegrator(id, symplecticEuler);
+    this.sampler.mark(id === 'euler' && symplecticEuler ? 'symplectic Euler' : id);
     this.updateReadout();
   }
 
@@ -282,6 +295,18 @@ export class Controller {
     this.edit(next, false, false);
   }
 
+  /** How many samples the charts take per T_char. Applies from the next sample; the history is kept. */
+  setSamplesPerPeriod(count: number): void {
+    this.samplesPerPeriod = Math.max(10, count);
+    this.sampler.interval = this.sim.reference.period / this.samplesPerPeriod;
+  }
+
+  /** Empties the charts and takes the first sample, at the current state. */
+  restartHistory(): void {
+    this.sampler.clear(this.sim.reference.period, this.samplesPerPeriod);
+    this.sampler.record(this.sim);
+  }
+
   private frame(dtSeconds: number): SystemState {
     const rendered = this.loop.frame(dtSeconds);
     this.sinceReadout += dtSeconds;
@@ -314,6 +339,7 @@ export class Controller {
       status = achieved < LAG_NOTICE ? `running at ${Math.round(100 * achieved)}% of requested speed` : 'running';
     }
     if (sim.encounter !== null) status += `; ${sim.encounter}`;
+    if (sim.warning !== null) status += `; ${sim.warning}`;
     for (let k = 0; k < 3; k++) {
       if (hasEscaped(sim.state, k, ESCAPE_SIZES * sim.reference.size)) status += `; body ${k + 1} has escaped`;
     }
