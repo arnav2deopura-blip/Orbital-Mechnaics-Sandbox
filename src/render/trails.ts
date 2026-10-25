@@ -2,25 +2,26 @@ import * as THREE from 'three';
 
 // Vertex age comes from gl_VertexID and two uniforms, so fading never rewrites an attribute.
 //
-// With SHADOW defined the same vertices are flattened onto the reference plane (the trail's
-// shadow, a depth cue for z). The vertices are relative to the line's anchor, so uBase, the
-// anchor in render space, brings them to render space first, where the plane is n.p = uPlaneD.
+// The vertices are relative to the line's anchor, so uBase, the anchor in render space, brings
+// them to render space, where the reference plane is n.p = uPlaneD. The height above it is
+// vHeight, which can tint the trail by z. With SHADOW defined the same vertices are flattened
+// onto the plane instead (the trail's shadow, a depth cue for z).
 const VERTEX_SHADER = /* glsl */ `
   uniform float uStart;
   uniform float uCount;
-  #ifdef SHADOW
   uniform vec3 uBase;
   uniform vec3 uNormal;
   uniform float uPlaneD;
-  #endif
   varying float vAge;
+  varying float vHeight;
   void main() {
     // 0 at the newest vertex of the drawn window, 1 at the oldest.
     float newest = uStart + uCount - 1.0;
     vAge = clamp((newest - float(gl_VertexID)) / max(uCount - 1.0, 1.0), 0.0, 1.0);
-    #ifdef SHADOW
     vec3 r = position + uBase;
-    r -= uNormal * (dot(uNormal, r) - uPlaneD);
+    vHeight = dot(uNormal, r) - uPlaneD;
+    #ifdef SHADOW
+    r -= uNormal * vHeight;
     gl_Position = projectionMatrix * viewMatrix * vec4(r, 1.0);
     #else
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -32,9 +33,20 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColor;
   uniform float uFade;
   uniform float uAlpha;
+  uniform float uTint;
+  uniform float uTintScale;
   varying float vAge;
+  varying float vHeight;
   void main() {
-    gl_FragColor = vec4(uColor, uAlpha * pow(1.0 - vAge, uFade));
+    vec3 color = uColor;
+    #ifndef SHADOW
+    // Above the plane the trail shifts toward pink, below it toward blue, fully at uTintScale away.
+    if (uTint > 0.5) {
+      vec3 tint = vHeight > 0.0 ? vec3(1.0, 0.62, 0.8) : vec3(0.42, 0.55, 1.0);
+      color = mix(uColor, tint, clamp(abs(vHeight) / uTintScale, 0.0, 1.0));
+    }
+    #endif
+    gl_FragColor = vec4(color, uAlpha * pow(1.0 - vAge, uFade));
     #include <colorspace_fragment>
   }
 `;
@@ -117,6 +129,11 @@ export class Trail {
       uCount: { value: 0 },
       uFade: { value: 1.5 },
       uAlpha: { value: alpha },
+      uBase: { value: new THREE.Vector3() },
+      uNormal: { value: new THREE.Vector3(0, 0, 1) },
+      uPlaneD: { value: 0 },
+      uTint: { value: 0 },
+      uTintScale: { value: 1 },
     });
     this.material = new THREE.ShaderMaterial({
       uniforms: uniforms(1),
@@ -127,12 +144,7 @@ export class Trail {
     });
     this.shadowMaterial = new THREE.ShaderMaterial({
       defines: { SHADOW: '' },
-      uniforms: {
-        ...uniforms(SHADOW_ALPHA),
-        uBase: { value: new THREE.Vector3() },
-        uNormal: { value: new THREE.Vector3(0, 0, 1) },
-        uPlaneD: { value: 0 },
-      },
+      uniforms: uniforms(SHADOW_ALPHA),
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
       transparent: true,
@@ -150,6 +162,12 @@ export class Trail {
 
   get size(): number {
     return this.capacity;
+  }
+
+  /** The opacity of the whole trail, 1 by default: ghost trails (the comparison twin) are fainter. The shadow is always 0.3 of it. */
+  set alpha(value: number) {
+    this.material.uniforms.uAlpha.value = value;
+    this.shadowMaterial.uniforms.uAlpha.value = SHADOW_ALPHA * value;
   }
 
   /** How quickly the trail fades toward its oldest end: alpha = (1 - age)^fade. */
@@ -244,7 +262,9 @@ export class Trail {
   /** Puts the line at anchor - origin, subtracted in Float64 (the floating origin). */
   place(originX: number, originY: number, originZ: number): void {
     this.line.position.set(this.anchor[0] - originX, this.anchor[1] - originY, this.anchor[2] - originZ);
-    (this.shadowMaterial.uniforms.uBase.value as THREE.Vector3).copy(this.line.position);
+    for (const material of [this.material, this.shadowMaterial]) {
+      (material.uniforms.uBase.value as THREE.Vector3).copy(this.line.position);
+    }
   }
 
   /**
@@ -252,8 +272,16 @@ export class Trail {
    * Call after place(); the shadow follows the same vertices as the line.
    */
   setPlane(nx: number, ny: number, nz: number, d: number): void {
-    (this.shadowMaterial.uniforms.uNormal.value as THREE.Vector3).set(nx, ny, nz);
-    this.shadowMaterial.uniforms.uPlaneD.value = d;
+    for (const material of [this.material, this.shadowMaterial]) {
+      (material.uniforms.uNormal.value as THREE.Vector3).set(nx, ny, nz);
+      material.uniforms.uPlaneD.value = d;
+    }
+  }
+
+  /** Tints the trail by its height above the plane set with setPlane(): fully `scale` away from it. */
+  setTint(enabled: boolean, scale: number): void {
+    this.material.uniforms.uTint.value = enabled ? 1 : 0;
+    this.material.uniforms.uTintScale.value = scale;
   }
 
   /**

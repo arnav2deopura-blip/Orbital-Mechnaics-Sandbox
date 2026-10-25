@@ -21,4 +21,5 @@ export const FIGURE_EIGHT: Preset = {
   recommended: { integrator: 'leapfrog', dt: PERIOD / 4000 },
   source: 'Moore 1993, PRL 70, 3675; Chenciner & Montgomery 2000, Ann. Math. 152',
   verified: true,
+  verifiedBy: 'returns to its start after one period to better than 1e-6 (IAS15 at 1e-12)',
 };

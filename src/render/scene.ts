@@ -6,11 +6,17 @@ import { DropLines } from './dropLines';
 import { PlaneFrame, snapDirection, updatePlaneFrame } from './frame';
 import type { PlaneMode, SnapView } from './frame';
 import { AxesGizmo } from './gizmo';
+import { decideQuality } from './quality';
 import { GridPlane } from './gridPlane';
 import { Trail } from './trails';
 import { VectorArrows } from './vectors';
 
-export type CameraMode = 'free' | 'com' | 'body0' | 'body1' | 'body2';
+/**
+ * What the camera follows. 'corotating' is the center of mass with the view turning about z so
+ * that the line from body 1 to body 2 keeps its direction on screen: the frame in which a
+ * Lagrange configuration or a Trojan's tadpole holds still. (The trails stay in the inertial frame.)
+ */
+export type CameraMode = 'free' | 'com' | 'body0' | 'body1' | 'body2' | 'corotating';
 
 /** What the view panel edits. SceneView reads it every frame. */
 export interface ViewSettings {
@@ -38,11 +44,17 @@ export interface ViewSettings {
   showShadows: boolean;
   /** The x, y, z indicator in the corner. */
   showAxes: boolean;
+  /** A very narrow field of view, which looks orthographic: parallel lines stay parallel and size does not depend on depth. */
+  orthographic: boolean;
+  /** Trails shift toward pink above the reference plane and blue below it, so height reads along the whole path. */
+  tintTrails: boolean;
   /** Arrows from each body along its velocity and its acceleration, with logarithmic lengths. */
   showVelocity: boolean;
   showAcceleration: boolean;
   /** Multiplies the displayed body radius. */
   bodyScale: number;
+  /** When frames stay slow, lower the pixel ratio and then the trail length, and say so (plan §13). It does not go back up. */
+  autoQuality: boolean;
 }
 
 export function defaultSettings(): ViewSettings {
@@ -58,9 +70,12 @@ export function defaultSettings(): ViewSettings {
     showDropLines: true,
     showShadows: true,
     showAxes: true,
+    orthographic: false,
+    tintTrails: false,
     showVelocity: false,
     showAcceleration: false,
     bodyScale: 1,
+    autoQuality: true,
   };
 }
 
@@ -78,10 +93,28 @@ const TRAIL_DETAIL = 0.003;
 const REBASE_DISTANCE = 2000;
 const MAX_FRAME_SECONDS = 0.1;
 const NO_OFFSET = new Float64Array(3);
+/** The two fields of view: the usual one, and one so narrow the picture looks orthographic. */
+export const PERSPECTIVE_FOV = 45;
+export const ORTHOGRAPHIC_FOV = 1.5;
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+
 /** How far the floor grid reaches from its center, and how far out and wide the walls are, in grid cells. */
 const FLOOR_CELLS = 16;
 const WALL_OFFSET_CELLS = 6;
 const WALL_CELLS = 10;
+
+/**
+ * The camera distance that keeps things the same size on screen when the field of view changes
+ * from oldFov to newFov (degrees): the size seen is proportional to tan(fov / 2) times the distance.
+ */
+export function distanceForFov(distance: number, oldFov: number, newFov: number): number {
+  return (distance * Math.tan(THREE.MathUtils.degToRad(oldFov) / 2)) / Math.tan(THREE.MathUtils.degToRad(newFov) / 2);
+}
+
+/** The angle, about z, of the line from body 1 to body 2, for the co-rotating view. */
+export function bodyLineAngle(x: Float64Array): number {
+  return Math.atan2(x[4] - x[1], x[3] - x[0]);
+}
 
 /**
  * The Float64 world point that sits at the render origin (plan §7.6). Everything handed to the
@@ -111,7 +144,7 @@ export class FloatingOrigin {
  */
 export function focusPoint(mode: CameraMode, x: Float64Array, m: Float64Array, out: Float64Array): boolean {
   if (mode === 'free') return false;
-  if (mode === 'com') {
+  if (mode === 'com' || mode === 'corotating') {
     const total = m[0] + m[1] + m[2];
     for (let c = 0; c < 3; c++) {
       out[c] = total > 0 ? (m[0] * x[c] + m[1] * x[3 + c] + m[2] * x[6 + c]) / total : (x[c] + x[3 + c] + x[6 + c]) / 3;
@@ -136,7 +169,7 @@ export function focusPoint(mode: CameraMode, x: Float64Array, m: Float64Array, o
 export class SceneView {
   readonly settings: ViewSettings = defaultSettings();
   /** Updated about four times a second. */
-  readonly stats = { fps: 0, frameMs: 0, renderMs: 0 };
+  readonly stats = { fps: 0, frameMs: 0, renderMs: 0, quality: 'full' };
   readonly origin = new FloatingOrigin();
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
@@ -145,6 +178,9 @@ export class SceneView {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly bodies = new Bodies();
+  /** The comparison twin (plan §7.4): translucent bodies and fainter trails over the first run. */
+  private readonly ghostBodies = new Bodies(0.4);
+  private readonly ghostTrails: Trail[];
   private readonly trails: Trail[];
   private readonly floor = new GridPlane(0x5b7db8, 1);
   /** The wall perpendicular to e1, and the one perpendicular to e2. */
@@ -160,6 +196,11 @@ export class SceneView {
   private readonly trailOrigin = new Float64Array(3);
   private trailedMode: CameraMode | null = null;
   private trailedFrame: ViewSettings['trailFrame'] | null = null;
+  private trailedGhost = false;
+  /** The angle of the body line at the last frame in the co-rotating view, or null when not in it. */
+  private coAngle: number | null = null;
+  /** The comparison twin's state to draw as a ghost, updated in place by whoever runs it, or null. */
+  private ghost: SystemState | null = null;
 
   private height = 1;
   private needsResize = true;
@@ -170,6 +211,9 @@ export class SceneView {
   private rafId = 0;
   private lastTime = 0;
   private statFrames = 0;
+  /** Consecutive stats windows that ran slowly (auto quality), and the pixel ratio the view may use. */
+  private slowWindows = 0;
+  private pixelRatioCap = 2;
   private statStart = 0;
 
   constructor(host: HTMLElement) {
@@ -190,9 +234,16 @@ export class SceneView {
     this.controls.maxDistance = 1e12;
 
     this.trails = BODY_COLORS.map((color) => new Trail(this.settings.trailLength, color));
+    this.ghostTrails = BODY_COLORS.map((color) => new Trail(this.settings.trailLength, color));
+    for (const trail of this.ghostTrails) trail.alpha = 0.45;
     this.scene.add(this.floor.mesh, ...this.walls.map((wall) => wall.mesh), this.bodies.group, this.dropLines.group, this.arrows.group);
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.3), this.light);
     for (const trail of this.trails) this.scene.add(trail.line, trail.shadow);
+    this.scene.add(this.ghostBodies.group);
+    for (const trail of this.ghostTrails) {
+      trail.shadow.visible = false;
+      this.scene.add(trail.line, trail.shadow);
+    }
     this.gizmo = new AxesGizmo(host);
 
     this.resizeObserver = new ResizeObserver(() => {
@@ -217,7 +268,18 @@ export class SceneView {
     for (let i = 0; i < 3; i++) this.trails[i].push(s.x[3 * i] - o[0], s.x[3 * i + 1] - o[1], s.x[3 * i + 2] - o[2]);
   }
 
+  /** Draws `state` (updated in place by the caller) as a ghost over the system, or stops doing so with null. */
+  setGhost(state: SystemState | null): void {
+    this.ghost = state;
+  }
+
+  /** Stores a trail sample for each body of the comparison twin. Always in the world frame (see renderState). */
+  recordGhostSample(s: SystemState): void {
+    for (let i = 0; i < 3; i++) this.ghostTrails[i].push(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]);
+  }
+
   clearTrails(): void {
+    for (const trail of this.ghostTrails) trail.clear();
     for (const trail of this.trails) trail.clear();
   }
 
@@ -225,6 +287,7 @@ export class SceneView {
   setTrailLength(samples: number): void {
     this.settings.trailLength = samples;
     for (const trail of this.trails) trail.resize(samples);
+    for (const trail of this.ghostTrails) trail.resize(samples);
   }
 
   setCameraMode(mode: CameraMode): void {
@@ -255,12 +318,37 @@ export class SceneView {
     // Put the focus at the render origin, and keep the camera orbiting it.
     this.origin.follow(mode, s.x, s.m);
     // Trails recorded in one frame make no sense in another: start them over when it changes.
-    if (mode !== this.trailedMode || settings.trailFrame !== this.trailedFrame) {
+    const ghost = this.ghost;
+    if (mode !== this.trailedMode || settings.trailFrame !== this.trailedFrame || (ghost !== null) !== this.trailedGhost) {
       this.trailedMode = mode;
       this.trailedFrame = settings.trailFrame;
+      this.trailedGhost = ghost !== null;
       this.clearTrails();
     }
     this.controls.enablePan = mode === 'free';
+
+    // The field of view: narrowing it far enough is an orthographic view. The camera moves back (or
+    // forward) so that what is on screen keeps its size.
+    const fov = settings.orthographic ? ORTHOGRAPHIC_FOV : PERSPECTIVE_FOV;
+    if (this.camera.fov !== fov) {
+      this.camera.position.multiplyScalar(distanceForFov(1, this.camera.fov, fov));
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+      this.clipDistance = 0; // near and far depend on the distance
+    }
+
+    // Co-rotating: turn the camera about z by however much the body line turned since the last frame.
+    if (mode === 'corotating') {
+      const angle = bodyLineAngle(s.x);
+      if (this.coAngle !== null) {
+        let delta = angle - this.coAngle;
+        delta -= 2 * Math.PI * Math.round(delta / (2 * Math.PI));
+        this.camera.position.applyAxisAngle(Z_AXIS, delta);
+      }
+      this.coAngle = angle;
+    } else {
+      this.coAngle = null;
+    }
     this.controls.update();
     if (mode === 'free') {
       const target = this.controls.target;
@@ -306,8 +394,34 @@ export class SceneView {
       trail.rebaseIfFar(to[0], to[1], to[2], REBASE_DISTANCE * d);
       trail.place(to[0], to[1], to[2]);
       trail.setPlane(frame.n[0], frame.n[1], frame.n[2], planeD);
+      trail.setTint(settings.tintTrails, 0.25 * this.systemScale);
       trail.setTip(s.x[3 * i] - tip[0], s.x[3 * i + 1] - tip[1], s.x[3 * i + 2] - tip[2]);
       trail.flush();
+    }
+
+    // The twin: ghost bodies and trails, in the world frame (the twin's samples are not taken at the
+    // same instants as the first run's, so a frame that moves with the focus could not be shared).
+    this.ghostBodies.group.visible = ghost !== null;
+    for (let i = 0; i < 3; i++) this.ghostTrails[i].line.visible = ghost !== null && settings.showTrails;
+    if (ghost !== null) {
+      this.ghostBodies.update(
+        ghost.x,
+        ghost.m,
+        o,
+        settings.bodyScale * BODY_RADIUS_FRACTION * this.systemScale * 1.15,
+        MIN_BODY_PIXELS * worldPerPixel * 1.15,
+      );
+      if (settings.showTrails) {
+        for (let i = 0; i < 3; i++) {
+          const trail = this.ghostTrails[i];
+          trail.minStep = TRAIL_DETAIL * d;
+          trail.fade = settings.trailFade;
+          trail.rebaseIfFar(o[0], o[1], o[2], REBASE_DISTANCE * d);
+          trail.place(o[0], o[1], o[2]);
+          trail.setTip(ghost.x[3 * i], ghost.x[3 * i + 1], ghost.x[3 * i + 2]);
+          trail.flush();
+        }
+      }
     }
 
     this.updateGrids(d);
@@ -343,6 +457,8 @@ export class SceneView {
     this.resizeObserver.disconnect();
     this.controls.dispose();
     for (const trail of this.trails) trail.dispose();
+    for (const trail of this.ghostTrails) trail.dispose();
+    this.ghostBodies.dispose();
     this.bodies.dispose();
     this.floor.dispose();
     for (const wall of this.walls) wall.dispose();
@@ -368,19 +484,34 @@ export class SceneView {
       this.stats.fps = (this.statFrames * 1000) / elapsed;
       this.stats.frameMs = elapsed / this.statFrames;
       this.statFrames = 0;
+      this.adaptQuality(this.stats.fps);
       this.statStart = now;
     }
   };
 
   /** True, with the focus in trailOrigin, when trails are stored relative to what the camera follows. */
   private trailsFollowFocus(s: SystemState): boolean {
+    if (this.ghost !== null) return false; // a comparison draws both runs' trails in the world frame
     return this.settings.trailFrame === 'focus' && focusPoint(this.settings.cameraMode, s.x, s.m, this.trailOrigin);
+  }
+
+  /** Auto quality (plan §13): see decideQuality(). */
+  private adaptQuality(fps: number): void {
+    const before = { slowWindows: this.slowWindows, pixelRatioCap: this.pixelRatioCap, trailLength: this.settings.trailLength };
+    const next = decideQuality(before, fps, this.settings.autoQuality);
+    this.slowWindows = next.slowWindows;
+    if (next.pixelRatioCap !== this.pixelRatioCap) {
+      this.pixelRatioCap = next.pixelRatioCap;
+      this.needsResize = true;
+    }
+    if (next.trailLength !== this.settings.trailLength) this.setTrailLength(next.trailLength);
+    if (next.message) this.stats.quality = next.message;
   }
 
   private resize(): void {
     const w = Math.max(1, this.host.clientWidth);
     const h = Math.max(1, this.host.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.pixelRatioCap));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();

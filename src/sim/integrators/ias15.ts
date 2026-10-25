@@ -150,7 +150,7 @@ export class IAS15 implements Integrator {
     else this.b.fill(0);
     this.gFromB();
 
-    let factor = 0;
+    let factor: number;
     for (let rejects = 0; ; rejects++) {
       const error = this.iterate(s, this.dir * dtAbs);
       const finite = error < Infinity; // false for NaN too: the corrector diverged

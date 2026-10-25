@@ -6,11 +6,13 @@ import { hasEscaped } from '../sim/events';
 import type { IntegratorId } from '../sim/integrators/types';
 import { DEFAULT_SAMPLES_PER_PERIOD, Sampler } from '../sim/sampler';
 import { Simulation } from '../sim/simulation';
-import { snapshot } from '../sim/state';
+import { copyState, snapshot } from '../sim/state';
 import { nudge as nudgeState, rotateState } from '../sim/transforms';
 import type { Axis, Nudge } from '../sim/transforms';
 import type { SystemState } from '../sim/types';
 import type { CameraMode } from '../render/scene';
+import { Comparison } from './comparison';
+import type { ComparisonOptions } from './comparison';
 import { SimLoop } from './loop';
 
 // Wiring (plan §2): UI -> controller -> Simulation, then Simulation -> read-only snapshot ->
@@ -18,9 +20,13 @@ import { SimLoop } from './loop';
 
 /** What the controller needs of the 3D view. SceneView provides all of it. */
 export interface ViewPort {
+  /** Milliseconds the last frame took to draw, if the view measures it: the loop's budget adapts to it. */
+  stats?: { renderMs: number };
   setSystemScale(size: number): void;
   setCameraMode(mode: CameraMode): void;
   recordSample(s: SystemState): void;
+  recordGhostSample(s: SystemState): void;
+  setGhost(state: SystemState | null): void;
   clearTrails(): void;
   start(frame: (dtSeconds: number) => SystemState): void;
 }
@@ -38,6 +44,10 @@ export interface Readout {
   dt: number;
   steps: number;
   forceEvals: number;
+  /** The distance between the first run and the comparison twin, NaN with no twin. */
+  divergence: number;
+  /** The phase-space distance from the start after "return to start", NaN until one has finished. */
+  returnDistance: number;
   status: string;
 }
 
@@ -69,6 +79,8 @@ export class Controller {
   readonly loop: SimLoop;
   /** The diagnostic history behind the charts. Restarted by every load, reset and edit. */
   readonly sampler = new Sampler();
+  /** The comparison twin (plan §7.4), or null. Ended by every load, reset and edit. */
+  comparison: Comparison | null = null;
   readonly readout: Readout = {
     t: 0,
     energyError: 0,
@@ -79,6 +91,8 @@ export class Controller {
     dt: 0,
     steps: 0,
     forceEvals: 0,
+    divergence: NaN,
+    returnDistance: NaN,
     status: '',
   };
   /** The preset last loaded, and the values of its parameters. The panel's sliders edit `params`; applyParams() reloads. */
@@ -96,6 +110,7 @@ export class Controller {
 
   private readonly view: ViewPort;
   private sinceReadout = 0;
+  private returnMessage = '';
   private samplesPerPeriod = DEFAULT_SAMPLES_PER_PERIOD;
 
   constructor(view: ViewPort, preset: Preset, options: LoadPresetOptions = {}, clock?: () => number) {
@@ -109,6 +124,8 @@ export class Controller {
       this.sampler.record(this.sim);
     };
     this.sim.onEvent = (message) => this.sampler.mark(message);
+    this.loop.onStop = () => this.finishReturn();
+    if (view.stats) this.loop.renderMs = () => (view.stats as { renderMs: number }).renderMs;
     this.loadPreset(preset, options);
   }
 
@@ -123,6 +140,8 @@ export class Controller {
    */
   loadPreset(preset: Preset, { offset = 0, params }: LoadPresetOptions = {}): void {
     const { sim } = this;
+    this.stopComparison();
+    this.cancelReturn();
     const recommended = preset.recommended;
     const instance = instantiate(preset, params);
     const initial = instance.state;
@@ -166,10 +185,12 @@ export class Controller {
   }
 
   play(): void {
+    this.returnMessage = '';
     this.loop.settings.running = true;
   }
 
   pause(): void {
+    this.cancelReturn();
     this.loop.settings.running = false;
   }
 
@@ -180,6 +201,8 @@ export class Controller {
 
   /** Back to the state of the last load or edit. Running or paused stays as it was. */
   reset(): void {
+    this.stopComparison();
+    this.cancelReturn();
     this.sim.reset();
     this.view.clearTrails();
     this.readDraft();
@@ -194,6 +217,7 @@ export class Controller {
   setDirection(sign: 1 | -1): void {
     if (sign !== this.sim.direction) this.sampler.mark(sign < 0 ? 'time reversed' : 'time forward');
     this.sim.setDirection(sign);
+    this.comparison?.sim.setDirection(sign);
   }
 
   /**
@@ -202,7 +226,9 @@ export class Controller {
    * integrator. `next` is normally a snapshot of sim.state with some fields changed.
    */
   edit(next: SystemState, recenter = true, pause = true): void {
+    this.stopComparison();
     if (pause) this.pause();
+    this.cancelReturn();
     this.sim.load(next, { recenter });
     this.view.clearTrails();
     this.readDraft();
@@ -295,6 +321,78 @@ export class Controller {
     this.edit(next, false, false);
   }
 
+  /**
+   * Starts a comparison (plan §7.4): a second run from the current state, drawn over the first,
+   * on the same time target, with its own history and a divergence measure. Starts the charts
+   * afresh so both begin at the same point. Returns an error message if the twin cannot be made
+   * (Wisdom-Holman does not take softening), else null.
+   */
+  startComparison(options: ComparisonOptions): string | null {
+    this.stopComparison();
+    let comparison: Comparison;
+    try {
+      comparison = new Comparison(this.sim, options);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    const twin = comparison.sim;
+    twin.onStep = (s) => {
+      this.view.recordGhostSample(s);
+      comparison.sampler.record(twin);
+    };
+    this.comparison = comparison;
+    this.loop.twin = twin;
+    copyState(twin.state, this.loop.renderedTwin);
+    this.view.setGhost(this.loop.renderedTwin);
+    this.view.clearTrails();
+    this.restartHistory();
+    this.updateReadout();
+    return null;
+  }
+
+  stopComparison(): void {
+    if (this.comparison === null) return;
+    this.comparison = null;
+    this.loop.twin = null;
+    this.view.setGhost(null);
+    this.sampler.divergence = NaN;
+    this.readout.divergence = NaN;
+  }
+
+  /**
+   * Runs back to the time of the last load or edit and reports how far the state is from where it
+   * started, in phase space (plan §7.3): about roundoff for leapfrog, but not for Euler, and not
+   * after a long run of a chaotic system. Pauses there. A fixed-step method lands on the start
+   * exactly; an adaptive one stops within a step of it.
+   */
+  returnToStart(): void {
+    const { sim, loop } = this;
+    const base = sim.baselineTime;
+    this.returnMessage = '';
+    this.readout.returnDistance = NaN;
+    if (sim.state.t === base) {
+      this.finishReturn();
+      return;
+    }
+    const dir = sim.state.t > base ? -1 : 1;
+    this.setDirection(dir);
+    loop.stopAt = base - dir * 0.5 * sim.currentDt();
+    loop.settings.running = true;
+  }
+
+  private cancelReturn(): void {
+    this.loop.stopAt = null;
+    this.returnMessage = '';
+  }
+
+  private finishReturn(): void {
+    const distance = this.sim.distanceFromBaseline();
+    this.readout.returnDistance = distance;
+    this.returnMessage = `returned to the start: phase-space distance ${distance.toExponential(2)}`;
+    this.loop.settings.running = false;
+    this.updateReadout();
+  }
+
   /** How many samples the charts take per T_char. Applies from the next sample; the history is kept. */
   setSamplesPerPeriod(count: number): void {
     this.samplesPerPeriod = Math.max(10, count);
@@ -309,6 +407,9 @@ export class Controller {
 
   private frame(dtSeconds: number): SystemState {
     const rendered = this.loop.frame(dtSeconds);
+    if (this.comparison !== null) {
+      this.sampler.divergence = this.comparison.measure(this.sim, rendered, this.loop.renderedTwin);
+    }
     this.sinceReadout += dtSeconds;
     if (this.sinceReadout >= READOUT_SECONDS) this.updateReadout();
     return rendered;
@@ -327,16 +428,20 @@ export class Controller {
     readout.dt = sim.currentDt();
     readout.steps = sim.counters.stepCount;
     readout.forceEvals = sim.counters.forceEvals;
+    readout.divergence = this.comparison?.divergence ?? NaN;
     readout.status = this.status();
   }
 
   private status(): string {
     const { sim } = this;
     if (sim.failure !== null) return sim.failure;
-    let status = 'paused';
+    const twinFailure = this.comparison?.sim.failure;
+    if (twinFailure) return `the comparison twin failed: ${twinFailure}`;
+    let status = this.returnMessage ? `paused; ${this.returnMessage}` : 'paused';
     if (this.loop.settings.running) {
       const achieved = this.loop.stats.achieved;
       status = achieved < LAG_NOTICE ? `running at ${Math.round(100 * achieved)}% of requested speed` : 'running';
+      if (this.loop.stopAt !== null) status = 'returning to the start';
     }
     if (sim.encounter !== null) status += `; ${sim.encounter}`;
     if (sim.warning !== null) status += `; ${sim.warning}`;

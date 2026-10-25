@@ -118,9 +118,9 @@ export function eulerCollinear(p: { tilt: number }): Generated {
   return { bodies: tiltBodies(bodies, p.tilt), period: (2 * Math.PI) / omega };
 }
 
-/** Jupiter's mass in solar masses, and its orbit's radius in AU. [VERIFY] against a reference before citing. */
-const JUPITER_MASS = 9.5e-4;
-const JUPITER_A = 5.2;
+/** Jupiter's mass in solar masses (1 / 1047.35) and the semi-major axis of its orbit in AU. */
+const JUPITER_MASS = 9.548e-4;
+const JUPITER_A = 5.203;
 
 /**
  * The Sun, Jupiter and a massless Trojan near the L4 point, in AU, solar masses and years
@@ -219,4 +219,26 @@ export function sandbox(p: { lift: number }): Generated {
     bodies: bodies.map((b, i) => ({ ...b, x: [b.x[0], b.x[1], lifts[i]] })),
     period: (2 * Math.PI) / omega,
   };
+}
+
+// ---- Šuvakov-Dmitrašinović orbits -------------------------------------------------------------
+
+/** One orbit of src/presets/data/suvakov.json. */
+export interface SuvakovOrbit {
+  id: string;
+  name: string;
+  label: string;
+  stable: boolean;
+  p1: number;
+  p2: number;
+  period: number;
+}
+
+/** The bodies of a Šuvakov-Dmitrašinović orbit: x1 = -x2 = (-1, 0), x3 = 0, v1 = v2 = (p1, p2), v3 = -2 (p1, p2), G = m = 1. */
+export function suvakovBodies(p1: number, p2: number): PresetBody[] {
+  return [
+    { name: 'Body 1', m: 1, x: [-1, 0, 0], v: [p1, p2, 0] },
+    { name: 'Body 2', m: 1, x: [1, 0, 0], v: [p1, p2, 0] },
+    { name: 'Body 3', m: 1, x: [0, 0, 0], v: [-2 * p1, -2 * p2, 0] },
+  ];
 }

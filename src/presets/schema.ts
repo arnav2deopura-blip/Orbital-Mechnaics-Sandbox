@@ -70,6 +70,8 @@ export interface Preset {
   source: string;
   /** True only once the periodicity or behavior test of plan §10 passes. */
   verified: boolean;
+  /** What that test checks, in a sentence, shown to the user when `verified`. */
+  verifiedBy?: string;
 }
 
 /** A preset made concrete with a choice of parameters. */

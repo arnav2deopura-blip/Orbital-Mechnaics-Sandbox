@@ -147,9 +147,9 @@ describe('Lagrange, Euler and Trojan solutions are exact rigid rotations', () =>
     expect(g.period).toBeLessThan(11.9);
     const s = stateOf(g, 4 * Math.PI ** 2);
     const d = (i: number, j: number): number => Math.hypot(s.x[3 * j] - s.x[3 * i], s.x[3 * j + 1] - s.x[3 * i + 1]);
-    expect(d(0, 1)).toBeCloseTo(5.2, 12);
-    expect(d(0, 2)).toBeCloseTo(5.2, 12);
-    expect(d(1, 2)).toBeCloseTo(5.2, 12);
+    expect(d(0, 1)).toBeCloseTo(5.203, 12);
+    expect(d(0, 2)).toBeCloseTo(5.203, 12);
+    expect(d(1, 2)).toBeCloseTo(5.203, 12);
   });
 });
 

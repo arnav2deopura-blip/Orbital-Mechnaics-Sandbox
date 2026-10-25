@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { Bodies } from '../src/render/bodies';
-import { defaultSettings, FloatingOrigin, focusPoint } from '../src/render/scene';
+import {
+  bodyLineAngle,
+  defaultSettings,
+  distanceForFov,
+  FloatingOrigin,
+  focusPoint,
+  ORTHOGRAPHIC_FOV,
+  PERSPECTIVE_FOV,
+} from '../src/render/scene';
 
 const x = Float64Array.of(1, 2, 3, 11, 12, 13, 21, 22, 23);
 
@@ -123,5 +131,45 @@ describe('defaultSettings', () => {
     const a = defaultSettings();
     a.showGrid = !a.showGrid;
     expect(defaultSettings().showGrid).not.toBe(a.showGrid);
+  });
+});
+
+describe('co-rotating view', () => {
+  it('focuses on the center of mass, like the plain COM view', () => {
+    const a = new Float64Array(3);
+    const b = new Float64Array(3);
+    const m = Float64Array.of(1, 2, 3);
+    expect(focusPoint('corotating', x, m, a)).toBe(true);
+    focusPoint('com', x, m, b);
+    expect(Array.from(a)).toEqual(Array.from(b));
+  });
+
+  it('measures the angle of the line from body 1 to body 2 about z', () => {
+    expect(bodyLineAngle(Float64Array.of(0, 0, 0, 1, 0, 0, 5, 5, 5))).toBe(0);
+    expect(bodyLineAngle(Float64Array.of(0, 0, 0, 0, 2, 0, 5, 5, 5))).toBeCloseTo(Math.PI / 2, 14);
+    expect(bodyLineAngle(Float64Array.of(1, 1, 0, 0, 0, 0, 5, 5, 5))).toBeCloseTo(-3 * Math.PI / 4, 14);
+    // z does not matter: it is the angle seen from above.
+    expect(bodyLineAngle(Float64Array.of(0, 0, 9, 1, 1, -9, 0, 0, 0))).toBeCloseTo(Math.PI / 4, 14);
+  });
+});
+
+describe('orthographic view', () => {
+  it('keeps the size on screen when the field of view narrows: size ~ tan(fov / 2) x distance', () => {
+    const d = distanceForFov(10, PERSPECTIVE_FOV, ORTHOGRAPHIC_FOV);
+    const seen = (fov: number, dist: number): number => Math.tan((fov * Math.PI) / 360) * dist;
+    expect(seen(ORTHOGRAPHIC_FOV, d)).toBeCloseTo(seen(PERSPECTIVE_FOV, 10), 12);
+    expect(d).toBeGreaterThan(300); // far back, so that depth hardly changes the scale
+  });
+
+  it('is undone exactly by going back', () => {
+    const there = distanceForFov(7, PERSPECTIVE_FOV, ORTHOGRAPHIC_FOV);
+    expect(distanceForFov(there, ORTHOGRAPHIC_FOV, PERSPECTIVE_FOV)).toBeCloseTo(7, 12);
+    expect(distanceForFov(3, 45, 45)).toBeCloseTo(3, 12);
+  });
+
+  it('is off by default, as is the z tint of trails', () => {
+    const s = defaultSettings();
+    expect(s.orthographic).toBe(false);
+    expect(s.tintTrails).toBe(false);
   });
 });

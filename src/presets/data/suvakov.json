@@ -1,0 +1,12 @@
+{
+  "note": "Initial conditions of the planar, zero-angular-momentum three-body orbits of Suvakov & Dmitrasinovic, Phys. Rev. Lett. 110, 114301 (2013), refined by Gauss-Newton shooting (src/presets/verify.ts, refineSymmetricOrbit) from their published 5-digit values to a closure of about 1e-11. All start from x1 = -x2 = (-1, 0), x3 = 0, v1 = v2 = (p1, p2), v3 = -2 (p1, p2), G = m = 1. published holds the 5-digit table values for comparison; the refined period differs from the published one in the fourth digit, and the closure test is what vouches for these numbers.",
+  "orbits": [
+    { "id": "butterfly-1", "name": "Butterfly I", "label": "I.A.1", "stable": false, "p1": 0.3068934204643854, "p2": 0.1255065670152800, "period": 6.234674838727740, "published": { "p1": 0.30689, "p2": 0.12551, "period": 6.2356 } },
+    { "id": "butterfly-2", "name": "Butterfly II", "label": "I.A.2", "stable": true, "p1": 0.3929554937052683, "p2": 0.09757896841975891, "period": 7.003709600728234, "published": { "p1": 0.39295, "p2": 0.09758, "period": 7.0039 } },
+    { "id": "bumblebee", "name": "Bumblebee", "label": "I.A.3", "stable": true, "p1": 0.1842784991572766, "p2": 0.5871881721925841, "period": 63.53435334047473, "published": { "p1": 0.18428, "p2": 0.58719, "period": 63.5345 } },
+    { "id": "moth-1", "name": "Moth I", "label": "I.B.1", "stable": true, "p1": 0.4644451728180797, "p2": 0.3960600146528064, "period": 14.89430517504237, "published": { "p1": 0.46444, "p2": 0.39606, "period": 14.8939 } },
+    { "id": "moth-2", "name": "Moth II", "label": "I.B.2", "stable": true, "p1": 0.4391659178888862, "p2": 0.4529676431912944, "period": 28.66927091510084, "published": { "p1": 0.43917, "p2": 0.45297, "period": 28.6703 } },
+    { "id": "butterfly-3", "name": "Butterfly III", "label": "I.B.3", "stable": true, "p1": 0.4059155671352349, "p2": 0.2301631259802663, "period": 13.86712343583262, "published": { "p1": 0.40592, "p2": 0.23016, "period": 13.8658 } },
+    { "id": "dragonfly", "name": "Dragonfly", "label": "I.B.7", "stable": false, "p1": 0.08058422554324041, "p2": 0.5888360897783558, "period": 21.27233739467556, "published": { "p1": 0.08058, "p2": 0.58884, "period": 21.2710 } }
+  ]
+}

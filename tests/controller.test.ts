@@ -20,6 +20,14 @@ class StubView implements ViewPort {
   setCameraMode(mode: CameraMode): void {
     this.modes.push(mode);
   }
+  ghostSamples = 0;
+  ghost: SystemState | null = null;
+  recordGhostSample(): void {
+    this.ghostSamples++;
+  }
+  setGhost(state: SystemState | null): void {
+    this.ghost = state;
+  }
   recordSample(): void {
     this.samples++;
   }

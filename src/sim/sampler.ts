@@ -15,7 +15,8 @@ export type SeriesKey =
   | 'minSeparation'
   | 'dt'
   | 'forceEvals'
-  | 'analyticError';
+  | 'analyticError'
+  | 'divergence';
 
 export interface SeriesSpec {
   key: SeriesKey;
@@ -37,6 +38,7 @@ export const SERIES: readonly SeriesSpec[] = [
   { key: 'dt', label: 'Step size taken', log: true, merge: 'min', hint: 'Constant for fixed-step methods. IAS15 shrinks it near close encounters.' },
   { key: 'forceEvals', label: 'Force evaluations (cumulative)', log: false, merge: 'last', hint: 'The cost, for comparing methods fairly.' },
   { key: 'analyticError', label: 'Error against the exact Kepler solution', log: true, merge: 'max', hint: 'Only when one body is massless: the other two have a closed-form orbit.' },
+  { key: 'divergence', label: 'Divergence from the twin (largest body offset)', log: true, merge: 'max', hint: 'Comparison mode only. Exponential growth is chaos: a nearby start separates at a rate set by the Lyapunov time. Steady growth is two methods disagreeing.' },
 ];
 
 const KEYS: SeriesKey[] = SERIES.map((spec) => spec.key);
@@ -63,6 +65,11 @@ export class Sampler {
   interval = 1;
   /** Samples stored. */
   length = 0;
+  /**
+   * How far the comparison twin is from this run, set by whoever runs the comparison, about once
+   * a frame. Samples take the latest value, so at high speed several share one. NaN: no twin.
+   */
+  divergence = NaN;
   /** Bumped whenever the data changes, so a chart can tell it needs to redraw. */
   version = 0;
   /**
@@ -71,6 +78,9 @@ export class Sampler {
    */
   readonly x: Float64Array;
   readonly values: Record<SeriesKey, Float64Array>;
+  /** The sim time of each sample (signed, unlike the elapsed time) and the nine coordinates there, for exporting the trajectory. */
+  readonly time: Float64Array;
+  readonly positions: Float64Array;
   readonly markers: Marker[] = [];
 
   private readonly capacity: number;
@@ -81,6 +91,8 @@ export class Sampler {
   /** The latest measurement, reused so sampling allocates nothing. */
   private readonly latest: Record<SeriesKey, number>;
   private binX = 0;
+  private binTime = 0;
+  private readonly binPositions = new Float64Array(9);
   private elapsed = 0;
   private lastT = 0;
   private lastSampleElapsed = 0;
@@ -90,6 +102,8 @@ export class Sampler {
   constructor(capacity = 20000) {
     this.capacity = Math.max(4, capacity - (capacity % 2));
     this.x = new Float64Array(this.capacity);
+    this.time = new Float64Array(this.capacity);
+    this.positions = new Float64Array(9 * this.capacity);
     this.values = Object.fromEntries(KEYS.map((key) => [key, new Float64Array(this.capacity)])) as Record<SeriesKey, Float64Array>;
     this.bin = Object.fromEntries(KEYS.map((key) => [key, NaN])) as Record<SeriesKey, number>;
     this.latest = Object.fromEntries(KEYS.map((key) => [key, NaN])) as Record<SeriesKey, number>;
@@ -150,11 +164,14 @@ export class Sampler {
     value.dt = Math.abs(sim.state.t - sim.prev.t) || sim.currentDt(); // no step yet: the one it will take
     value.forceEvals = sim.counters.forceEvals;
     value.analyticError = sim.analyticError();
+    value.divergence = this.divergence;
     const bin = this.bin;
     for (const spec of SERIES) {
       bin[spec.key] = this.binCount === 0 ? value[spec.key] : merge(spec.merge, bin[spec.key], value[spec.key]);
     }
     this.binX = this.elapsed;
+    this.binTime = sim.state.t;
+    this.binPositions.set(sim.state.x);
     if (++this.binCount < this.stride) return;
     this.binCount = 0;
     this.push();
@@ -165,6 +182,8 @@ export class Sampler {
     if (this.length === this.capacity) this.thin();
     const i = this.length++;
     this.x[i] = this.binX;
+    this.time[i] = this.binTime;
+    this.positions.set(this.binPositions, 9 * i);
     for (const key of KEYS) this.values[key][i] = this.bin[key];
     this.version++;
   }
@@ -174,6 +193,8 @@ export class Sampler {
     const half = this.capacity / 2;
     for (let i = 0; i < half; i++) {
       this.x[i] = this.x[2 * i + 1];
+      this.time[i] = this.time[2 * i + 1];
+      this.positions.copyWithin(9 * i, 9 * (2 * i + 1), 9 * (2 * i + 2));
       for (const spec of SERIES) {
         const v = this.values[spec.key];
         v[i] = merge(spec.merge, v[2 * i], v[2 * i + 1]);
@@ -188,6 +209,17 @@ export class Sampler {
     const v = this.values[key];
     for (let i = 0; i < this.length; i++) if (v[i] === v[i]) return true;
     return false;
+  }
+
+  /** The trajectory at the sample times as CSV: elapsed time, sim time, then x, y, z of each body (plan §7.8). */
+  toTrajectoryCsv(): string {
+    const header = ['elapsed_time', 't'];
+    for (let b = 1; b <= 3; b++) for (const axis of ['x', 'y', 'z']) header.push(`${axis}${b}`);
+    const rows = [header.join(',')];
+    for (let i = 0; i < this.length; i++) {
+      rows.push([this.x[i], this.time[i], ...this.positions.subarray(9 * i, 9 * i + 9)].join(','));
+    }
+    return rows.join('\n') + '\n';
   }
 
   /** The history as CSV: elapsed time, then every series that has data (plan §7.8). */

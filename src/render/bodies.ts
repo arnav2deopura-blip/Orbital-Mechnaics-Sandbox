@@ -15,8 +15,12 @@ export class Bodies {
   private readonly materials: THREE.MeshLambertMaterial[];
   private readonly meshes: THREE.Mesh[];
 
-  constructor() {
-    this.materials = BODY_COLORS.map((color) => new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35 }));
+  /** `opacity` below 1 makes ghost bodies, for drawing a second run over the first. */
+  constructor(opacity = 1) {
+    this.materials = BODY_COLORS.map(
+      (color) =>
+        new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35, transparent: opacity < 1, opacity }),
+    );
     this.meshes = this.materials.map((material) => {
       const mesh = new THREE.Mesh(this.geometry, material);
       mesh.frustumCulled = false;

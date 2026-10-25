@@ -7,7 +7,7 @@ import { createIntegrator } from './integrators';
 import { IAS15 } from './integrators/ias15';
 import type { Integrator, IntegratorId, IntegratorParams } from './integrators/types';
 import { WH } from './integrators/wh';
-import { copyState, createCounters, createState, STATE_LEN } from './state';
+import { copyState, createCounters, createState, snapshot, STATE_LEN } from './state';
 import type { CostCounters, SystemState } from './types';
 
 /** advanceTo() reads the clock this often (in steps), not after every one. */
@@ -170,6 +170,28 @@ export class Simulation {
   /** How far the true state is from the exact two-body solution, or NaN when there is none (no massless body, or softening). */
   analyticError(): number {
     return this.analytic ? this.analytic.error(this.state) : NaN;
+  }
+
+  /**
+   * The phase-space distance from the state of the last load(): the largest difference in any
+   * position or velocity component. For the "return to start" check (plan §7.3).
+   */
+  distanceFromBaseline(): number {
+    let worst = 0;
+    for (let i = 0; i < STATE_LEN; i++) {
+      worst = Math.max(worst, Math.abs(this.state.x[i] - this.baseline.x[i]), Math.abs(this.state.v[i] - this.baseline.v[i]));
+    }
+    return worst;
+  }
+
+  /** A copy of the state of the last load(): the run's initial conditions, as edited. */
+  baselineSnapshot(): SystemState {
+    return snapshot(this.baseline);
+  }
+
+  /** The time of the last load(): where reset() and "return to start" go back to. */
+  get baselineTime(): number {
+    return this.baseline.t;
   }
 
   /** Measures the true state into `diagnostics` (plan §6) and returns it. */

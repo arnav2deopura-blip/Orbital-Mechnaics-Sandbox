@@ -21,10 +21,14 @@ const COLORS: Record<SeriesKey, string> = {
   dt: '#74c0fc',
   forceEvals: '#adb5bd',
   analyticError: '#f783ac',
+  divergence: '#ffa94d',
 };
 
 /** Which charts are open at the start. The analytic error appears by itself when there is one. */
-const SHOWN_AT_START: SeriesKey[] = ['energyError', 'angularMomentumError', 'minSeparation', 'dt', 'analyticError'];
+const SHOWN_AT_START: SeriesKey[] = ['energyError', 'angularMomentumError', 'minSeparation', 'dt', 'analyticError', 'divergence'];
+
+/** Series that only exist when the data does: the comparison's divergence, and the exact-solution error. */
+const NEEDS_DATA: SeriesKey[] = ['analyticError', 'divergence'];
 
 export interface ChartSettings {
   visible: boolean;
@@ -73,26 +77,32 @@ interface Cell {
   plot: uPlot;
   /** y values for the plot: clamped copies, since a log axis cannot take zero. */
   y: Float64Array;
+  /** The twin's values at the first run's sample times. */
+  y2: Float64Array;
 }
 
 export class Charts {
   readonly settings = defaultChartSettings();
   private readonly sampler: Sampler;
   private readonly caption: () => string;
+  private readonly twin: () => Sampler | null;
   private readonly dock = document.createElement('div');
   private readonly cells: Cell[];
   private readonly resizeObserver: ResizeObserver;
   private drawnVersion = -1;
+  private drawnTwinVersion = -1;
   private drawnLayout = '';
   private captionText = '';
 
   /**
-   * `caption` returns the sentence for the energy chart. The charts need not be shown (settings.visible)
+   * `caption` returns the sentence for the energy chart. `twin` returns the comparison twin's
+   * history, drawn dashed on the same axes, or null. The charts need not be shown (settings.visible)
    * for the sampler to keep its history.
    */
-  constructor(host: HTMLElement, sampler: Sampler, caption: () => string) {
+  constructor(host: HTMLElement, sampler: Sampler, caption: () => string, twin: () => Sampler | null = () => null) {
     this.sampler = sampler;
     this.caption = caption;
+    this.twin = twin;
     const dock = this.dock;
     dock.style.cssText =
       `position:absolute;left:0;bottom:0;right:${PANEL_WIDTH}px;max-height:45vh;overflow-y:auto;box-sizing:border-box;` +
@@ -125,8 +135,10 @@ export class Charts {
       for (const cell of this.cells) if (cell.caption) cell.caption.textContent = text;
     }
 
-    if (!relayout && sampler.version === this.drawnVersion) return;
+    const twinVersion = this.twin()?.version ?? -1;
+    if (!relayout && sampler.version === this.drawnVersion && twinVersion === this.drawnTwinVersion) return;
     this.drawnVersion = sampler.version;
+    this.drawnTwinVersion = twinVersion;
     for (const cell of this.cells) if (this.isShown(cell)) this.draw(cell);
   }
 
@@ -138,7 +150,7 @@ export class Charts {
 
   private isShown(cell: Cell): boolean {
     const key = cell.spec.key;
-    return this.settings.show[key] && (key !== 'analyticError' || this.sampler.has(key));
+    return this.settings.show[key] && (!NEEDS_DATA.includes(key) || this.sampler.has(key));
   }
 
   private makeCell(spec: SeriesSpec): Cell {
@@ -182,13 +194,17 @@ export class Charts {
             values: (_u, ticks) => ticks.map((v) => (v == null ? '' : spec.log ? v.toExponential(0) : formatLinear(v))),
           },
         ],
-        series: [{}, { stroke: COLORS[spec.key], width: 1.5, points: { show: false } }],
+        series: [
+          {},
+          { stroke: COLORS[spec.key], width: 1.5, points: { show: false } },
+          { stroke: COLORS[spec.key], width: 1.2, dash: [5, 4], show: false, points: { show: false } },
+        ],
         hooks: { draw: [(u) => this.drawMarkers(u)] },
       },
-      [[], []],
+      [[], [], []],
       holder,
     );
-    return { spec, root, caption, plot, y: new Float64Array(0) };
+    return { spec, root, caption, plot, y: new Float64Array(0), y2: new Float64Array(0) };
   }
 
   private resize(): void {
@@ -201,15 +217,37 @@ export class Charts {
   private draw(cell: Cell): void {
     const { sampler } = this;
     const n = sampler.length;
-    if (cell.y.length < n) cell.y = new Float64Array(sampler.x.length);
-    const source = sampler.values[cell.spec.key];
-    const y = cell.y;
-    if (cell.spec.log) {
-      for (let i = 0; i < n; i++) y[i] = Math.max(source[i], FLOOR) || FLOOR; // NaN becomes the floor
-    } else {
-      for (let i = 0; i < n; i++) y[i] = source[i];
+    if (cell.y.length < n) {
+      cell.y = new Float64Array(sampler.x.length);
+      cell.y2 = new Float64Array(sampler.x.length);
     }
-    cell.plot.setData([sampler.x.subarray(0, n), y.subarray(0, n)]);
+    const log = cell.spec.log;
+    const clamp = (v: number): number => (log ? Math.max(v, FLOOR) || FLOOR : v); // a log axis cannot take zero or NaN
+    const source = sampler.values[cell.spec.key];
+    for (let i = 0; i < n; i++) cell.y[i] = clamp(source[i]);
+
+    // The twin, dashed, resampled onto the first run's times (the two do not sample at the same instants).
+    const twin = cell.spec.key === 'divergence' ? null : this.twin();
+    const showTwin = twin !== null && twin.length > 0;
+    if (showTwin) {
+      const values = twin.values[cell.spec.key];
+      let j = 0;
+      for (let i = 0; i < n; i++) {
+        const x = sampler.x[i];
+        while (j + 1 < twin.length && twin.x[j + 1] <= x) j++;
+        let v: number;
+        if (x <= twin.x[0] || j + 1 >= twin.length) v = values[x <= twin.x[0] ? 0 : twin.length - 1];
+        else {
+          const f = (x - twin.x[j]) / (twin.x[j + 1] - twin.x[j]);
+          v = values[j] + f * (values[j + 1] - values[j]);
+        }
+        cell.y2[i] = clamp(v);
+      }
+    }
+    cell.plot.batch(() => {
+      cell.plot.setSeries(2, { show: showTwin });
+      cell.plot.setData([sampler.x.subarray(0, n), cell.y.subarray(0, n), cell.y2.subarray(0, n)]);
+    });
   }
 
   /** Dashed vertical lines where something happened: an integrator switch, a reversal, an encounter. */
