@@ -1,3 +1,4 @@
+import { findPreset } from '../presets';
 import { routhRatio } from '../presets/generators';
 import { instantiate } from '../presets/schema';
 import type { ParamValues, Preset } from '../presets/schema';
@@ -7,12 +8,16 @@ import type { IntegratorId } from '../sim/integrators/types';
 import { DEFAULT_SAMPLES_PER_PERIOD, Sampler } from '../sim/sampler';
 import { Simulation } from '../sim/simulation';
 import { copyState, snapshot } from '../sim/state';
-import { nudge as nudgeState, rotateState } from '../sim/transforms';
+import { nudge as nudgeState, rotateState, scaleToBound } from '../sim/transforms';
 import type { Axis, Nudge } from '../sim/transforms';
 import type { SystemState } from '../sim/types';
 import type { CameraMode } from '../render/scene';
 import { Comparison } from './comparison';
 import type { ComparisonOptions } from './comparison';
+import { bySeverity, FAR_SIZES, preflight, runtimeIssues } from './health';
+import type { Fix, Issue } from './health';
+import { suggestPreset } from './suggest';
+import type { Suggestion } from './suggest';
 import { SimLoop } from './loop';
 
 // Wiring (plan §2): UI -> controller -> Simulation, then Simulation -> read-only snapshot ->
@@ -29,6 +34,8 @@ export interface ViewPort {
   setGhost(state: SystemState | null): void;
   clearTrails(): void;
   start(frame: (dtSeconds: number) => SystemState): void;
+  /** Pulls the camera back until every body is in view. */
+  frameAll?(s: SystemState): void;
 }
 
 /** Plain values for the panel's readouts, refreshed about ten times a second. */
@@ -108,7 +115,19 @@ export class Controller {
     vel: { x: 0, y: 0, z: 0 },
   }));
 
+  /**
+   * Counts loads, edits and resets: a warning dismissed in one run comes back in the next. The
+   * banner compares it with the value it saw.
+   */
+  runId = 0;
+  /** The user changed the system (the body editor, G, softening or the preset's sliders): another preset may suit them better. */
+  custom = false;
+
   private readonly view: ViewPort;
+  private preflightIssues: Issue[] = [];
+  private currentIssues: Issue[] = [];
+  /** Warnings that have already paused this run once: pressing play again must not pause it again. */
+  private readonly pausedFor = new Set<string>();
   private sinceReadout = 0;
   private returnMessage = '';
   private samplesPerPeriod = DEFAULT_SAMPLES_PER_PERIOD;
@@ -174,9 +193,11 @@ export class Controller {
     this.view.clearTrails();
     this.view.setCameraMode(recommended.camera?.focus ?? 'com');
     this.view.setSystemScale(instance.size ?? recommended.camera?.size ?? systemSize(sim.state));
+    const defaults = instantiate(preset).params;
+    this.custom = Object.keys(defaults).some((key) => defaults[key] !== this.params[key]);
     this.readDraft();
     this.restartHistory();
-    this.updateReadout();
+    this.newRun();
   }
 
   /** Reloads the current preset with the values now in `params`: the sliders' apply. */
@@ -207,7 +228,7 @@ export class Controller {
     this.view.clearTrails();
     this.readDraft();
     this.restartHistory();
-    this.updateReadout();
+    this.newRun();
   }
 
   setSpeed(speed: number): void {
@@ -233,7 +254,7 @@ export class Controller {
     this.view.clearTrails();
     this.readDraft();
     this.restartHistory();
-    this.updateReadout();
+    this.newRun();
   }
 
   /** Fills the body editor's buffer from the current state. */
@@ -254,6 +275,7 @@ export class Controller {
       next.x.set([body.pos.x, body.pos.y, body.pos.z], 3 * i);
       next.v.set([body.vel.x, body.vel.y, body.vel.z], 3 * i);
     });
+    this.custom = true;
     this.edit(next, recenter);
   }
 
@@ -283,12 +305,15 @@ export class Controller {
     if (id === 'wh' && this.sim.state.eps2 !== 0) this.setSoftening(0);
     this.sim.setIntegrator(id, symplecticEuler);
     this.sampler.mark(id === 'euler' && symplecticEuler ? 'symplectic Euler' : id);
+    this.pausedFor.clear();
+    this.checkStart();
     this.updateReadout();
   }
 
   /** The step size of the fixed-step methods, and the first guess of IAS15. Takes effect on the next step. */
   setDt(dt: number): void {
     this.sim.params.dt = dt;
+    this.checkStart();
   }
 
   /** WH only: the body the others orbit (undefined: the most massive). Restarts WH, which orders the bodies once. */
@@ -310,6 +335,7 @@ export class Controller {
   setG(G: number): void {
     const next = snapshot(this.sim.state);
     next.G = G;
+    this.custom = true;
     this.edit(next, false, false);
   }
 
@@ -318,6 +344,7 @@ export class Controller {
     if (this.sim.integrator.id === 'wh') return;
     const next = snapshot(this.sim.state);
     next.eps2 = length * length;
+    this.custom = true;
     this.edit(next, false, false);
   }
 
@@ -430,6 +457,96 @@ export class Controller {
     readout.forceEvals = sim.counters.forceEvals;
     readout.divergence = this.comparison?.divergence ?? NaN;
     readout.status = this.status();
+    this.checkHealth();
+  }
+
+  /** What is wrong with the run, most severe first. Refreshed with the readout, about ten times a second. */
+  get issues(): readonly Issue[] {
+    return this.currentIssues;
+  }
+
+  /** The preset closest to the starting state, or null when the run is a preset's own (it is already the right one). */
+  suggestion(): Suggestion | null {
+    if (!this.custom && this.preset.id !== 'sandbox') return null;
+    const suggestion = suggestPreset(this.sim.baselineSnapshot());
+    return suggestion.presetId === this.preset.id && !this.custom ? null : suggestion;
+  }
+
+  /** Does what a warning offers (see health.ts), and runs. */
+  applyFix(fix: Fix): void {
+    const { sim } = this;
+    switch (fix) {
+      case 'bind': {
+        const next = sim.baselineSnapshot();
+        scaleToBound(next);
+        this.custom = true;
+        this.edit(next, true);
+        break;
+      }
+      case 'ias15':
+        this.setIntegrator('ias15');
+        this.reset();
+        break;
+      case 'smaller-step':
+        // A quarter, and at least as fine as the warning asks: a half barely changes a step that is far too big.
+        this.setDt(Math.min(sim.params.dt / 4, sim.reference.period / (4 * 20)));
+        this.reset();
+        break;
+      case 'reset':
+        this.reset();
+        break;
+      case 'frame':
+        this.view.frameAll?.(sim.state);
+        return;
+      case 'suggested': {
+        const preset = findPreset(this.suggestion()?.presetId ?? '');
+        if (preset) this.loadPreset(preset);
+        break;
+      }
+      case 'defaults':
+        this.loadPreset(this.preset);
+        break;
+    }
+    this.play();
+  }
+
+  /** A fresh start (load, edit or reset): warnings dismissed before come back, and may pause again. */
+  private newRun(): void {
+    this.runId++;
+    this.pausedFor.clear();
+    this.checkStart();
+    this.updateReadout();
+  }
+
+  /** The checks on the starting state, which depend on the method and step too. */
+  private checkStart(): void {
+    const { sim } = this;
+    this.preflightIssues = preflight({ state: sim.baselineSnapshot(), integrator: sim.integrator.id, dt: sim.params.dt, period: sim.reference.period });
+  }
+
+  private checkHealth(): void {
+    const { sim, readout } = this;
+    const escape = ESCAPE_SIZES * sim.reference.size;
+    const d = sim.refreshDiagnostics();
+    const far = [0, 1, 2].map(
+      (k) => Math.hypot(sim.state.x[3 * k] - d.com[0], sim.state.x[3 * k + 1] - d.com[1], sim.state.x[3 * k + 2] - d.com[2]) > FAR_SIZES * sim.reference.size,
+    );
+    const running = runtimeIssues({
+      integrator: sim.integrator.id,
+      explicitEuler: sim.integrator.id === 'euler' && !sim.integrator.symplectic,
+      failure: sim.failure,
+      warning: sim.warning,
+      energyError: readout.energyError,
+      escaped: [0, 1, 2].map((k) => hasEscaped(sim.state, k, escape)),
+      far,
+      custom: this.custom,
+    });
+    this.currentIssues = bySeverity([...running, ...this.preflightIssues]);
+    for (const issue of this.currentIssues) {
+      if (!issue.pause || this.pausedFor.has(issue.id)) continue;
+      this.pausedFor.add(issue.id);
+      if (this.loop.settings.running) this.pause();
+    }
   }
 
   private status(): string {

@@ -8,6 +8,7 @@ import type { PlaneMode, SnapView } from './frame';
 import { AxesGizmo } from './gizmo';
 import { decideQuality } from './quality';
 import { GridPlane } from './gridPlane';
+import { OffscreenMarkers } from './offscreen';
 import { Trail } from './trails';
 import { VectorArrows } from './vectors';
 
@@ -188,6 +189,7 @@ export class SceneView {
   private readonly dropLines = new DropLines();
   private readonly arrows = new VectorArrows();
   private readonly gizmo: AxesGizmo;
+  private readonly offscreen: OffscreenMarkers;
   private readonly light = new THREE.DirectionalLight(0xffffff, 2.2);
   private readonly resizeObserver: ResizeObserver;
   private readonly frame3d = new PlaneFrame();
@@ -202,6 +204,7 @@ export class SceneView {
   /** The comparison twin's state to draw as a ghost, updated in place by whoever runs it, or null. */
   private ghost: SystemState | null = null;
 
+  private width = 1;
   private height = 1;
   private needsResize = true;
   private systemScale = 1;
@@ -245,6 +248,7 @@ export class SceneView {
       this.scene.add(trail.line, trail.shadow);
     }
     this.gizmo = new AxesGizmo(host);
+    this.offscreen = new OffscreenMarkers(host);
 
     this.resizeObserver = new ResizeObserver(() => {
       this.needsResize = true;
@@ -258,6 +262,32 @@ export class SceneView {
     this.systemScale = size;
     this.camera.position.set(0, -2.4 * size, 1.6 * size);
     this.controls.target.set(0, 0, 0);
+    this.controls.update();
+  }
+
+  /**
+   * Pulls the camera straight back (or in) until every body fits, following the center of mass.
+   * The direction of view and the size the bodies are drawn at are kept.
+   */
+  frameAll(s: SystemState): void {
+    const M = s.m[0] + s.m[1] + s.m[2];
+    let radius = 0;
+    for (let i = 0; i < 3; i++) {
+      let r2 = 0;
+      for (let c = 0; c < 3; c++) {
+        const com = M > 0 ? (s.m[0] * s.x[c] + s.m[1] * s.x[3 + c] + s.m[2] * s.x[6 + c]) / M : 0;
+        r2 += (s.x[3 * i + c] - com) ** 2;
+      }
+      radius = Math.max(radius, Math.sqrt(r2));
+    }
+    if (!(radius > 0) || !Number.isFinite(radius)) return;
+    this.settings.cameraMode = 'com';
+    // Far enough that a sphere of that radius fits the height of the view, with a margin, and its width when the view is narrow.
+    const halfFov = THREE.MathUtils.degToRad(this.camera.fov) / 2;
+    const distance = (1.2 * radius) / Math.sin(halfFov) / Math.min(1, this.width / this.height);
+    this.controls.target.set(0, 0, 0);
+    if (this.camera.position.lengthSq() === 0) this.camera.position.set(0, -2.4, 1.6);
+    this.camera.position.setLength(distance);
     this.controls.update();
   }
 
@@ -430,6 +460,7 @@ export class SceneView {
     this.arrows.update(s, o, d, settings.showVelocity, settings.showAcceleration);
     this.renderer.render(this.scene, this.camera);
     this.gizmo.render(this.renderer, this.camera, frame, settings.showAxes);
+    this.offscreen.update(s.x, o, this.camera, this.width, this.height);
     this.stats.renderMs = performance.now() - t0;
   }
 
@@ -465,6 +496,7 @@ export class SceneView {
     this.dropLines.dispose();
     this.arrows.dispose();
     this.gizmo.dispose();
+    this.offscreen.dispose();
     this.light.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -515,6 +547,7 @@ export class SceneView {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.width = w;
     this.height = h;
     this.needsResize = false;
   }

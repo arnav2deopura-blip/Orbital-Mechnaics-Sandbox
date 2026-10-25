@@ -36,7 +36,7 @@ export class BatchView {
   constructor(host: HTMLElement) {
     const root = this.root;
     root.style.cssText =
-      'position:absolute;top:16px;bottom:16px;left:16px;right:288px;display:none;flex-direction:column;box-sizing:border-box;' +
+      'position:absolute;top:16px;bottom:16px;left:16px;right:16px;display:none;flex-direction:column;box-sizing:border-box;' +
       'background:rgba(6,8,13,0.97);border:1px solid #1d2433;border-radius:6px;font:12px/1.4 ui-monospace,monospace;color:#cfd6e6;z-index:5';
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #1d2433';

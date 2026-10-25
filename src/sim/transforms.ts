@@ -99,3 +99,28 @@ function normalTo(s: SystemState, out: [number, number, number]): void {
     out[2] = 1;
   }
 }
+
+/**
+ * Slows the bodies down, relative to their center of mass, until the kinetic energy is `ratio`
+ * of the potential energy's size: 0.5 is the virial balance of a bound system, and anything
+ * below 1 is bound. Positions and the center-of-mass velocity are kept. Returns the factor the
+ * relative velocities were multiplied by (1 if the bodies are at rest or have no mass).
+ */
+export function scaleToBound(s: SystemState, ratio = 0.5): number {
+  const M = s.m[0] + s.m[1] + s.m[2];
+  if (!(M > 0)) return 1;
+  const com = [0, 0, 0];
+  for (let i = 0; i < 3; i++) for (let c = 0; c < 3; c++) com[c] += (s.m[i] * s.v[3 * i + c]) / M;
+  let kinetic = 0;
+  for (let i = 0; i < 3; i++) {
+    for (let c = 0; c < 3; c++) kinetic += 0.5 * s.m[i] * (s.v[3 * i + c] - com[c]) ** 2;
+  }
+  const d = createDiagnostics();
+  measure(s, d);
+  if (!(kinetic > 0) || !(d.potential < 0)) return 1;
+  const factor = Math.sqrt((ratio * -d.potential) / kinetic);
+  for (let i = 0; i < 3; i++) {
+    for (let c = 0; c < 3; c++) s.v[3 * i + c] = com[c] + factor * (s.v[3 * i + c] - com[c]);
+  }
+  return factor;
+}

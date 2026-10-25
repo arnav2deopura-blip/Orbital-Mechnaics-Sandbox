@@ -3,12 +3,11 @@ import 'uplot/dist/uPlot.min.css';
 import { SERIES } from '../sim/sampler';
 import type { Sampler, SeriesKey, SeriesSpec } from '../sim/sampler';
 
-// The diagnostic charts (plan §6): one small uPlot per series in a dock along the bottom of the
-// screen, drawn from a Sampler. Redrawn only when the sampler's version has moved.
+// The diagnostic charts (plan §6): one small uPlot per series in a drawer under the view, drawn
+// from a Sampler, with a toggle per chart in the drawer's header. Redrawn only when the sampler's
+// version has moved.
 
-const CHART_HEIGHT = 130;
-/** The panel is 256 px wide, plus its margin: the dock stops short of it. */
-const PANEL_WIDTH = 272;
+const CHART_HEIGHT = 120;
 /** A log axis cannot show zero: an error that is exactly zero is drawn here. */
 const FLOOR = 1e-18;
 
@@ -86,7 +85,9 @@ export class Charts {
   private readonly sampler: Sampler;
   private readonly caption: () => string;
   private readonly twin: () => Sampler | null;
+  private readonly drawer: HTMLElement;
   private readonly dock = document.createElement('div');
+  private readonly chips = new Map<SeriesKey, HTMLButtonElement>();
   private readonly cells: Cell[];
   private readonly resizeObserver: ResizeObserver;
   private drawnVersion = -1;
@@ -103,11 +104,10 @@ export class Charts {
     this.sampler = sampler;
     this.caption = caption;
     this.twin = twin;
+    this.drawer = host;
+    host.appendChild(this.makeHeader());
     const dock = this.dock;
-    dock.style.cssText =
-      `position:absolute;left:0;bottom:0;right:${PANEL_WIDTH}px;max-height:45vh;overflow-y:auto;box-sizing:border-box;` +
-      'display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:2px 6px;padding:4px 6px 2px;' +
-      'background:rgba(6,8,13,0.86);border-top:1px solid #1d2433;font:11px/1.3 ui-monospace,monospace;color:#8b95a8';
+    dock.className = 'chart-grid';
     host.appendChild(dock);
     this.cells = SERIES.map((spec) => this.makeCell(spec));
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -116,9 +116,14 @@ export class Charts {
 
   /** Redraws what changed. Call about ten times a second. */
   update(): void {
-    const { settings, sampler, dock } = this;
-    dock.style.display = settings.visible ? 'grid' : 'none';
+    const { settings, sampler } = this;
+    this.drawer.hidden = !settings.visible;
     if (!settings.visible) return;
+    for (const [key, chip] of this.chips) {
+      const available = !NEEDS_DATA.includes(key) || sampler.has(key);
+      chip.setAttribute('aria-pressed', String(settings.show[key]));
+      chip.classList.toggle('unavailable', !available);
+    }
 
     // Which charts are open: a change of layout needs a resize and a redraw.
     const layout = this.cells.map((cell) => (this.isShown(cell) ? '1' : '0')).join('');
@@ -148,6 +153,50 @@ export class Charts {
     this.dock.remove();
   }
 
+  /** The drawer's header: its title, a toggle per chart, a link to how to read them, and a close button. */
+  private makeHeader(): HTMLElement {
+    const header = document.createElement('div');
+    header.className = 'drawer-head';
+    const title = document.createElement('strong');
+    title.textContent = 'Charts';
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    chips.setAttribute('role', 'group');
+    chips.setAttribute('aria-label', 'Charts to show');
+    for (const spec of SERIES) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.style.setProperty('--chip-color', COLORS[spec.key]);
+      chip.textContent = CHIP_LABELS[spec.key];
+      chip.title = NEEDS_DATA.includes(spec.key) ? `${spec.hint} (Only has data in some runs.)` : spec.hint;
+      chip.addEventListener('click', () => {
+        this.settings.show[spec.key] = !this.settings.show[spec.key];
+        this.update();
+      });
+      this.chips.set(spec.key, chip);
+      chips.appendChild(chip);
+    }
+    const learn = document.createElement('a');
+    learn.className = 'learn-link';
+    learn.href = 'learn.html#conservation-laws';
+    learn.target = '_blank';
+    learn.rel = 'noopener';
+    learn.textContent = 'How to read these →';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'icon-button';
+    close.setAttribute('aria-label', 'Hide the charts');
+    close.title = 'Hide the charts (C)';
+    close.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6l3.5 3.5L11.5 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    close.addEventListener('click', () => {
+      this.settings.visible = false;
+      this.update();
+    });
+    header.append(title, chips, learn, close);
+    return header;
+  }
+
   private isShown(cell: Cell): boolean {
     const key = cell.spec.key;
     return this.settings.show[key] && (!NEEDS_DATA.includes(key) || this.sampler.has(key));
@@ -155,18 +204,18 @@ export class Charts {
 
   private makeCell(spec: SeriesSpec): Cell {
     const root = document.createElement('div');
-    root.style.cssText = 'min-width:0';
+    root.className = 'chart-cell';
     const label = document.createElement('div');
+    label.className = 'chart-label';
     label.textContent = spec.label;
     label.title = spec.hint;
-    label.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help';
     root.appendChild(label);
     const holder = document.createElement('div');
     root.appendChild(holder);
     let caption: HTMLDivElement | null = null;
     if (spec.key === 'energyError') {
       caption = document.createElement('div');
-      caption.style.cssText = 'color:#6c7a93;font-size:10px;min-height:2.6em';
+      caption.className = 'chart-caption';
       root.appendChild(caption);
     }
     this.dock.appendChild(root);
@@ -280,6 +329,18 @@ export class Charts {
     ctx.restore();
   }
 }
+
+const CHIP_LABELS: Record<SeriesKey, string> = {
+  energyError: 'Energy',
+  angularMomentumError: 'Ang. momentum',
+  momentumError: 'Momentum',
+  comDrift: 'COM drift',
+  minSeparation: 'Closest pair',
+  dt: 'Step size',
+  forceEvals: 'Cost',
+  analyticError: 'vs exact Kepler',
+  divergence: 'Divergence',
+};
 
 function formatLinear(v: number): string {
   return Math.abs(v) >= 1e5 || (v !== 0 && Math.abs(v) < 1e-2) ? v.toExponential(0) : String(v);

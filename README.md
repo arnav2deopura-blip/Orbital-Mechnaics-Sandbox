@@ -27,6 +27,19 @@ Pages, Netlify, a school server) at any path. `.github/workflows/ci.yml` runs th
 
 ## What is in the simulator
 
+- **Layout**: a top bar with the preset, play/pause, speed and method, plus switches for the charts
+  (or press `C`), the modules and the Learn page. The rest of the controls are modules in a side panel:
+  System, Method, Live numbers, View, Time & events, Bodies & physics, Perturb, Compare, Chart data,
+  Batch jobs and Performance. Each one can be folded or closed, and the Modules menu brings it back.
+  Which modules are open, the panel's width and the charts switch are remembered in the browser.
+  On a phone the panel is a sheet that slides up.
+- **Warnings**: when a system cannot work (it is unbound, two bodies start on top of each other and fall
+  together, the step is too coarse) or has stopped working (a failed step, energy off by more than 10%,
+  an escape, a body far off screen), a banner over the view says so in plain words, with buttons
+  that fix it: slow the bodies until the system is bound, switch to IAS15, take smaller steps, frame
+  every body, or load the preset closest to the user's own values (`src/app/health.ts`,
+  `src/app/suggest.ts`). An energy blow-up pauses the run once. Arrows at the edge of the view point
+  to bodies that are off screen.
 - **Presets**: Kepler, figure-eight, Lagrange, Euler collinear, Sun-Jupiter-Trojan, star-planet-moon,
   Pythagorean, a Kozai triple, seven Šuvakov-Dmitrašinović orbits, and a sandbox. Most have sliders
   (inclination, mass ratio, tilt). Each says whether a test has checked it.
@@ -56,9 +69,10 @@ src/
               events, batch jobs. Imports nothing from the folders below.
   presets/    schema, generators, the Šuvakov data, and the checks that back "verified"
   app/        Controller (the one path for every change), SimLoop (time target and frame budget),
-              Comparison, URL state, the batch client
+              Comparison, URL state, the batch client, run health and preset suggestions
   render/     Three.js: bodies, trails, planes, gizmo, arrows, the scene
-  ui/         Tweakpane panel, uPlot charts, batch results
+  ui/         the layout shell, top bar, modules (Tweakpane inside cards), warnings, uPlot charts,
+              batch results
   worker/     the batch worker and its protocol
   learn/      the Learn page, from markdown in learn/content
 tests/        Vitest; golden/ holds the REBOUND reference numbers
