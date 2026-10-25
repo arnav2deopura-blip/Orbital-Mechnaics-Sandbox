@@ -28,7 +28,7 @@ export function shiftToComFrame(s: SystemState): void {
   for (let c = 0; c < 3; c++) {
     const rc = (m[0] * x[c] + m[1] * x[3 + c] + m[2] * x[6 + c]) / M;
     const vc = (m[0] * v[c] + m[1] * v[3 + c] + m[2] * v[6 + c]) / M;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < s.n; i++) {
       x[3 * i + c] -= rc;
       v[3 * i + c] -= vc;
     }

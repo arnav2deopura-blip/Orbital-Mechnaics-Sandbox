@@ -4,12 +4,16 @@ import {
   eulerCollinear,
   fromJacobi,
   inclinedTriple,
+  circularBinary,
+  hyperbolicFlyby,
   kepler,
+  keplerOrbit,
   lagrange,
   lagrangeBodies,
   pericenterState,
   routhRatio,
   sandbox,
+  sandboxPair,
   starPlanetMoon,
   tiltBodies,
   trojan,
@@ -325,6 +329,103 @@ describe('sandbox', () => {
   });
 });
 
+describe('two-body generators', () => {
+  const stateN2 = (g: Generated): SystemState => {
+    const s = createState(1, 0, 2);
+    g.bodies.forEach((b, i) => {
+      s.m[i] = b.m;
+      s.x.set(b.x, 3 * i);
+      s.v.set(b.v, 3 * i);
+    });
+    return s;
+  };
+
+  it('the Kepler orbit is in the COM frame with energy -G m0 m1 / 2a and the right angular momentum', () => {
+    const e = 0.4;
+    const q = 0.3;
+    const g = keplerOrbit({ e, massRatio: q, tilt: 0 });
+    const s = stateOf({ bodies: [...g.bodies, { name: 'x', m: 0, x: [0, 0, 0], v: [0, 0, 0] }] });
+    expect(Math.hypot(...[0, 1, 2].map((c) => s.m[0] * s.x[c] + s.m[1] * s.x[3 + c]))).toBeLessThan(1e-15);
+    expect(Math.hypot(...[0, 1, 2].map((c) => s.m[0] * s.v[c] + s.m[1] * s.v[3 + c]))).toBeLessThan(1e-15);
+    expect(energy(s)).toBeCloseTo(-q / 2, 13);
+    expect(angularMomentum(s)[2]).toBeCloseTo((q / (1 + q)) * Math.sqrt((1 + q) * (1 - e * e)), 13);
+    expect(g.period).toBeCloseTo(2 * Math.PI / Math.sqrt(1 + q), 13);
+  });
+
+  it('starting at the apocenter puts the bodies a (1 + e) apart, moving at the slowest speed', () => {
+    const g = keplerOrbit({ e: 0.99, massRatio: 0.5, tilt: 0, from: 'apocenter' });
+    const [a, b] = g.bodies;
+    expect(Math.hypot(b.x[0] - a.x[0], b.x[1] - a.x[1])).toBeCloseTo(1.99, 13);
+    const vRel = Math.hypot(b.v[0] - a.v[0], b.v[1] - a.v[1]);
+    expect(vRel).toBeCloseTo(Math.sqrt((1.5 * 0.01) / 1.99), 13);
+  });
+
+  it('the circular binary has a constant separation of 1 and a closed form step', () => {
+    const g = circularBinary({ massRatio: 1, tilt: 0 });
+    const [a, b] = g.bodies;
+    expect(Math.hypot(b.x[0] - a.x[0], b.x[1] - a.x[1])).toBeCloseTo(1, 14);
+    const sim = new Simulation(stateN2(g), { integrator: 'ias15', params: { dt: g.period! / 100 } });
+    for (let k = 1; k <= 10; k++) {
+      sim.advanceTo((k * g.period!) / 10, Infinity);
+      const s = sim.state;
+      expect(Math.hypot(s.x[3] - s.x[0], s.x[4] - s.x[1], s.x[5] - s.x[2])).toBeCloseTo(1, 9);
+    }
+  });
+
+  it('the flyby is unbound, comes in from 15 pericenter distances, and passes at exactly the pericenter distance', () => {
+    const e = 1.6;
+    const q = 0.5;
+    const g = hyperbolicFlyby({ e, massRatio: q, tilt: 0 });
+    const s = stateN2(g);
+    const mu = 1 + q;
+    const sep = (x: Float64Array): number => Math.hypot(x[3] - x[0], x[4] - x[1], x[5] - x[2]);
+    expect(sep(s.x)).toBeCloseTo(15, 12);
+    // Specific orbital energy mu (e - 1) / (2 rp) > 0 for rp = 1: v_inf^2 / 2 = mu / (2 a), a = rp / (e - 1).
+    const vrel2 = (s.v[3] - s.v[0]) ** 2 + (s.v[4] - s.v[1]) ** 2 + (s.v[5] - s.v[2]) ** 2;
+    expect(0.5 * vrel2 - mu / 15).toBeCloseTo((mu * (e - 1)) / 2, 12);
+    // Coming in: the separation shrinks at first.
+    const radialRate = (s.x[3] - s.x[0]) * (s.v[3] - s.v[0]) + (s.x[4] - s.x[1]) * (s.v[4] - s.v[1]);
+    expect(radialRate).toBeLessThan(0);
+
+    // Sample the pass in order and fit a parabola to the three samples around the minimum.
+    const sim = new Simulation(s, { integrator: 'ias15', params: { dt: g.period! / 200, epsTol: 1e-11 } });
+    const drawn = sim.baselineSnapshot();
+    const h = 0.01;
+    const seps: number[] = [];
+    for (let t = 0; t <= 40; t += h) {
+      sim.advanceTo(t, Infinity);
+      sim.stateAt(t, drawn);
+      seps.push(sep(drawn.x));
+    }
+    const i = seps.indexOf(Math.min(...seps));
+    expect(i).toBeGreaterThan(0);
+    expect(i).toBeLessThan(seps.length - 1);
+    const [fm, f0, fp] = [seps[i - 1], seps[i], seps[i + 1]];
+    const minimum = f0 - (fp - fm) ** 2 / (8 * (fp - 2 * f0 + fm));
+    expect(minimum).toBeCloseTo(1, 5);
+    expect(seps[seps.length - 1]).toBeGreaterThan(seps[0]); // out the other side, and still going
+    expect(energy(sim.state)).toBeCloseTo(energy(s), 9);
+  });
+
+  it('the sandbox pair is bound below sqrt 2 and unbound above, and circular at speed 1', () => {
+    const energyOf = (speed: number): number => energy(stateOf({ bodies: [...sandboxPair({ speed, tilt: 0 }).bodies, { name: 'x', m: 0, x: [0, 0, 0], v: [0, 0, 0] }] }));
+    expect(energyOf(1.3)).toBeLessThan(0);
+    expect(energyOf(1.5)).toBeGreaterThan(0);
+    const g = sandboxPair({ speed: 1, tilt: 0 });
+    const sim = new Simulation(stateN2(g), { integrator: 'ias15', params: { dt: g.period! / 100 } });
+    sim.advanceTo(g.period! / 3, Infinity);
+    expect(Math.hypot(sim.state.x[3] - sim.state.x[0], sim.state.x[4] - sim.state.x[1])).toBeCloseTo(2, 8);
+  });
+
+  it('every 2-body preset has two bodies and a zeroed slot 2', () => {
+    for (const preset of PRESETS.filter((p) => p.bodyCount === 2)) {
+      const { state } = instantiate(preset);
+      expect(state.n, preset.id).toBe(2);
+      expect([state.m[2], ...state.x.subarray(6), ...state.v.subarray(6)], preset.id).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    }
+  });
+});
+
 describe('the preset list', () => {
   it('has unique ids', () => {
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
@@ -378,7 +479,7 @@ describe('the preset list', () => {
         params: { dt: (period ?? characteristicTime(state)) / 100 },
       });
       sim.advanceTo(period ?? characteristicTime(state), Infinity);
-      const zs = [sim.state.x[2], sim.state.x[5], sim.state.x[8]];
+      const zs = [sim.state.x[2], sim.state.x[5], sim.state.x[8]].slice(0, sim.state.n);
       expect(Math.max(...zs.map(Math.abs))).toBeGreaterThan(1e-6);
     }
   });

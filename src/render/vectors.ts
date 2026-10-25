@@ -5,7 +5,7 @@ import { BODY_COLORS } from './bodies';
 
 /** The longest an arrow gets for a vector as large as the typical one, as a fraction of the view distance. */
 const TYPICAL_LENGTH = 0.12;
-const ACCELERATION_COLOR = 0xff8787;
+const ACCELERATION_COLOR = 0xff5a36;
 
 /**
  * Velocity and acceleration arrows (plan §7.6), from each body, in 3D. Lengths are logarithmic,
@@ -53,9 +53,13 @@ export class VectorArrows {
   ): void {
     let sum = 0;
     for (let i = 0; i < 9; i++) sum += vectors[i] * vectors[i];
-    const typical = Math.sqrt(sum / 3);
+    const typical = Math.sqrt(sum / s.n);
     for (let i = 0; i < 3; i++) {
       const arrow = arrows[i];
+      if (i >= s.n) {
+        arrow.visible = false;
+        continue;
+      }
       const vx = vectors[3 * i];
       const vy = vectors[3 * i + 1];
       const vz = vectors[3 * i + 2];

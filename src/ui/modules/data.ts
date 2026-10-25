@@ -7,6 +7,7 @@ import type { SweepResult } from '../../sim/batch';
 import { snapshot } from '../../sim/state';
 import type { BatchView, SweepEntry } from '../batchView';
 import { downloadText } from '../charts';
+import { METHOD_COLORS } from '../palette';
 import type { ModuleSpec } from '../shell';
 import { fixed, learnLink, paneIn, prose, REFRESH_MS, scientific, setTitle } from './common';
 
@@ -16,20 +17,23 @@ import { fixed, learnLink, paneIn, prose, REFRESH_MS, scientific, setTitle } fro
 export function numbersModule(controller: Controller): ModuleSpec {
   return {
     id: 'numbers',
-    title: 'Live numbers',
-    summary: 'Energy and momentum errors, closest pair, step size and cost, as they happen',
+    title: 'Live Numbers',
+    summary: 'Energy and momentum errors, closest approach, step size and cost, as they happen',
     shownByDefault: true,
+    perBody: true,
     build(body) {
       const pane = paneIn(body);
       const { readout } = controller;
+      const pair = controller.sim.state.n === 2;
       const watch = (key: keyof typeof readout, label: string, format?: (value: number) => string, hint?: string): void => {
         setTitle(pane.addBinding(readout, key, { label, readonly: true, ...(format && { format }) }), hint);
       };
       watch('energyError', 'energy error', scientific, '|E - E0| / |E0|. Real gravity keeps it at zero: anything else is the method’s error.');
       watch('angularMomentumError', 'L error', scientific, '|L - L0| / L_scale.');
       watch('momentumError', '|P| error', scientific, 'Total momentum. Every method here keeps it at zero to roundoff.');
-      watch('minSeparation', 'closest pair', (value) => value.toPrecision(3));
-      watch('routh', 'Routh', fixed(3), "27 (m1 m2 + m2 m3 + m3 m1) / M^2. Lagrange's equilateral solution is stable below 1.");
+      watch('minSeparation', pair ? 'separation' : 'closest pair', (value) => value.toPrecision(3));
+      // The Routh criterion is about three bodies on an equilateral triangle: a pair has none.
+      if (!pair) watch('routh', 'Routh', fixed(3), "27 (m1 m2 + m2 m3 + m3 m1) / M^2. Lagrange's equilateral solution is stable below 1.");
       watch('dt', 'step taken', scientific);
       watch('steps', 'steps', fixed(0));
       watch('forceEvals', 'force evals', fixed(0), 'How many times the forces were computed: the fair measure of cost.');
@@ -42,7 +46,7 @@ export function numbersModule(controller: Controller): ModuleSpec {
 export function exportModule(controller: Controller): ModuleSpec {
   return {
     id: 'export',
-    title: 'Chart data & export',
+    title: 'Chart Data & Export',
     summary: 'How often the charts sample, and CSV downloads',
     shownByDefault: false,
     build(body) {
@@ -64,7 +68,7 @@ export function exportModule(controller: Controller): ModuleSpec {
       pane.addButton({ title: 'Download diagnostics CSV' }).on('click', () => downloadText('three-body-diagnostics.csv', controller.sampler.toCsv()));
       const trajectory = pane.addButton({ title: 'Download trajectory CSV' });
       trajectory.on('click', () => downloadText('three-body-trajectory.csv', controller.sampler.toTrajectoryCsv()));
-      setTitle(trajectory, 'The positions of the three bodies at each chart sample, as CSV.');
+      setTitle(trajectory, 'The positions of the bodies at each chart sample, as CSV.');
       return () => pane.refresh();
     },
   };
@@ -72,17 +76,17 @@ export function exportModule(controller: Controller): ModuleSpec {
 
 /** The methods a sweep compares, with the step range each is tried over (as fractions of T_char) and the order it should show. */
 const SWEEP_METHODS = [
-  { id: 'euler', symplectic: false, label: 'Euler', expected: 1, from: 1 / 6400, to: 1 / 204800, color: '#ff8787' },
-  { id: 'euler', symplectic: true, label: 'Symplectic Euler', expected: 1, from: 1 / 6400, to: 1 / 204800, color: '#ffa94d' },
-  { id: 'leapfrog', symplectic: false, label: 'Leapfrog', expected: 2, from: 1 / 100, to: 1 / 1600, color: '#69db7c' },
-  { id: 'rk4', symplectic: false, label: 'RK4', expected: 4, from: 1 / 100, to: 1 / 600, color: '#4dabf7' },
-  { id: 'wh', symplectic: false, label: 'Wisdom-Holman', expected: 2, from: 1 / 100, to: 1 / 1600, color: '#b197fc' },
+  { id: 'euler', symplectic: false, label: 'Euler', expected: 1, from: 1 / 6400, to: 1 / 204800, color: METHOD_COLORS.euler },
+  { id: 'euler', symplectic: true, label: 'Symplectic Euler', expected: 1, from: 1 / 6400, to: 1 / 204800, color: METHOD_COLORS.symplecticEuler },
+  { id: 'leapfrog', symplectic: false, label: 'Leapfrog', expected: 2, from: 1 / 100, to: 1 / 1600, color: METHOD_COLORS.leapfrog },
+  { id: 'rk4', symplectic: false, label: 'RK4', expected: 4, from: 1 / 100, to: 1 / 600, color: METHOD_COLORS.rk4 },
+  { id: 'wh', symplectic: false, label: 'Wisdom-Holman', expected: 2, from: 1 / 100, to: 1 / 1600, color: METHOD_COLORS.wh },
 ] as const;
 
 export function batchModule(controller: Controller, view: BatchView): ModuleSpec {
   return {
     id: 'batch',
-    title: 'Batch jobs',
+    title: 'Batch Jobs',
     summary: 'Convergence sweeps, fast-forward and a Lyapunov estimate, run in the background',
     shownByDefault: false,
     build(body) {
@@ -139,7 +143,7 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
           }
           entries.push({
             label: 'IAS15 (tolerance 1e-4 to 1e-10)',
-            color: '#f783ac',
+            color: METHOD_COLORS.ias15,
             expected: null,
             result: await track(batch.sweep({ state, integrator: 'ias15', duration, values: [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10] }, progress('IAS15'))),
           });

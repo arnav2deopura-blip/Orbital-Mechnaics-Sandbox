@@ -3,7 +3,7 @@ import type { IntegratorId } from './integrators/types';
 import { Sampler } from './sampler';
 import { Simulation } from './simulation';
 import { snapshot } from './state';
-import type { SystemState } from './types';
+import type { BodyCount, SystemState } from './types';
 
 // Batch jobs (plan §9): runs that would stall the live view, done headless. Everything here is
 // plain computation on a SystemState, so the same code runs in a Web Worker (src/worker) and in
@@ -194,7 +194,7 @@ export interface FastForwardSpec {
 
 export interface FastForwardResult {
   /** The state reached, as a SystemState-shaped plain object. */
-  final: { t: number; m: Float64Array; x: Float64Array; v: Float64Array; G: number; eps2: number };
+  final: { n: BodyCount; t: number; m: Float64Array; x: Float64Array; v: Float64Array; G: number; eps2: number };
   /** Decimated history: elapsed time, then the errors and the closest pair. */
   elapsed: Float64Array;
   energyError: Float64Array;
@@ -233,7 +233,7 @@ export async function fastForward(spec: FastForwardSpec, ctx: BatchContext = qui
   }
   const n = sampler.length;
   return {
-    final: { t: sim.state.t, m: Float64Array.from(sim.state.m), x: Float64Array.from(sim.state.x), v: Float64Array.from(sim.state.v), G: sim.state.G, eps2: sim.state.eps2 },
+    final: { n: sim.state.n, t: sim.state.t, m: Float64Array.from(sim.state.m), x: Float64Array.from(sim.state.x), v: Float64Array.from(sim.state.v), G: sim.state.G, eps2: sim.state.eps2 },
     elapsed: sampler.x.slice(0, n),
     energyError: sampler.values.energyError.slice(0, n),
     angularMomentumError: sampler.values.angularMomentumError.slice(0, n),

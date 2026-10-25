@@ -86,7 +86,7 @@ export class Simulation {
    * encounter, or the first of each kind of integrator warning.
    */
   onEvent: ((message: string) => void) | null = null;
-  /** The exact solution, when one body is massless (plan §6), for the analytic error. Set by load(). */
+  /** The exact solution, for two bodies or when one is massless (plan §6), for the analytic error. Set by load(). */
   private analytic: KeplerReference | null = null;
 
   /** What reset() returns to: the state at the last load(). */
@@ -167,7 +167,7 @@ export class Simulation {
     return this.integrator instanceof IAS15 ? this.integrator.dtNext : this.params.dt;
   }
 
-  /** How far the true state is from the exact two-body solution, or NaN when there is none (no massless body, or softening). */
+  /** How far the true state is from the exact two-body solution, or NaN when there is none (three massive bodies, or softening). */
   analyticError(): number {
     return this.analytic ? this.analytic.error(this.state) : NaN;
   }
@@ -250,6 +250,7 @@ export class Simulation {
    */
   stateAt(t: number, out: SystemState): void {
     const { prev, state } = this;
+    out.n = state.n;
     out.m.set(state.m);
     out.G = state.G;
     out.eps2 = state.eps2;
@@ -297,7 +298,7 @@ export class Simulation {
 
   private checkEncounter(): void {
     const radius = this.encounterRadius;
-    const r2 = minSeparationSquared(this.state.x);
+    const r2 = minSeparationSquared(this.state.x, this.state.n);
     if (r2 < radius * radius) {
       if (this.inEncounter) return;
       this.inEncounter = true;

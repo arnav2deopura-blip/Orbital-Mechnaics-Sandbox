@@ -2,6 +2,11 @@
 // Content comes from src/learn/content/*.md, in file-name order, with the sections that come
 // from data (the presets, the references) slotted in. Every "Try it" link opens the simulator
 // in a prepared state (src/app/urlState.ts).
+import '@fontsource-variable/archivo/wdth.css';
+import '@fontsource-variable/source-serif-4/opsz.css';
+import '@fontsource-variable/source-serif-4/opsz-italic.css';
+import '../ui/tokens.css';
+import './learn.css';
 import { PRESETS } from '../presets';
 import { titleOf } from './markdown';
 import { renderReferences } from './references';
@@ -65,9 +70,37 @@ function mount(root: HTMLElement): void {
   const body = sections.map((s) => `<section id="${s.id}">${s.html}</section>`).join('');
   root.innerHTML =
     `<nav class="toc"><a class="back" href="index.html">&larr; The simulator</a><ol>${nav}</ol></nav>` +
-    `<main><header><h1 class="page-title">Learn: how the integrators work</h1>` +
+    `<main><header><h1 class="page-title">How the integrators work</h1>` +
     `<p class="lede">Plain language first. Open <em>Go deeper</em> for the equations, and <em>Try it</em> to see it in the simulator.</p></header>${body}</main>`;
   if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  followReader(root);
+}
+
+/** Marks the contents entry of the section being read. */
+function followReader(root: HTMLElement): void {
+  const links = new Map<string, HTMLAnchorElement>();
+  root.querySelectorAll<HTMLAnchorElement>('.toc li a').forEach((a) => links.set(a.getAttribute('href')?.slice(1) ?? '', a));
+  const mark = (id: string): void => {
+    for (const [key, a] of links) {
+      if (key === id) a.setAttribute('aria-current', 'true');
+      else a.removeAttribute('aria-current');
+    }
+  };
+  if (typeof IntersectionObserver === 'undefined') return;
+  const seen = new Set<string>();
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) seen.add(entry.target.id);
+        else seen.delete(entry.target.id);
+      }
+      // The first (topmost) section in the band is the one being read.
+      const first = [...root.querySelectorAll<HTMLElement>('main > section')].find((section) => seen.has(section.id));
+      if (first) mark(first.id);
+    },
+    { rootMargin: '-10% 0px -80% 0px' },
+  );
+  root.querySelectorAll('main > section').forEach((section) => observer.observe(section));
 }
 
 const app = document.querySelector<HTMLDivElement>('#app');

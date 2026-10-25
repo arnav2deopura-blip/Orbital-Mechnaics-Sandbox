@@ -2,6 +2,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { FastForwardResult, LyapunovResult, SweepResult } from '../sim/batch';
 import { alignedData } from './align';
+import { decadeSplits } from './axes';
+import { INK, INK_3, RULE, RULE_STRONG } from './palette';
 import type { PlotSeries } from './align';
 
 // The results of the batch jobs (plan §9): an overlay with log-log plots for the sweeps, the
@@ -35,18 +37,18 @@ export class BatchView {
 
   constructor(host: HTMLElement) {
     const root = this.root;
-    root.style.cssText =
-      'position:absolute;top:16px;bottom:16px;left:16px;right:16px;display:none;flex-direction:column;box-sizing:border-box;' +
-      'background:rgba(6,8,13,0.97);border:1px solid #1d2433;border-radius:6px;font:12px/1.4 ui-monospace,monospace;color:#cfd6e6;z-index:5';
+    root.className = 'batch';
+    root.style.display = 'none';
     const header = document.createElement('div');
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #1d2433';
-    this.title.style.cssText = 'font-weight:600;color:#ffd166';
+    header.className = 'batch-head';
+    this.title.className = 'batch-title';
     const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'bar-button';
     close.textContent = 'Close';
-    close.style.cssText = 'background:#1d2433;color:#cfd6e6;border:0;border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit';
     close.addEventListener('click', () => this.hide());
     header.append(this.title, close);
-    this.body.style.cssText = 'overflow:auto;padding:12px;flex:1';
+    this.body.className = 'batch-body';
     root.append(header, this.body);
     host.appendChild(root);
   }
@@ -98,13 +100,13 @@ export class BatchView {
     const x = result.elapsed;
     const one = (title: string, y: Float64Array, color: string): void =>
       this.plot({ title, xLabel: 'elapsed time', yLabel: '', logX: false, logY: true, series: [{ label: title, color, x, y: clampAll(y) }] });
-    one('Energy error', result.energyError, '#ffd166');
-    one('Angular momentum error', result.angularMomentumError, '#06d6a0');
-    one('Closest pair distance', result.minSeparation, '#ff8787');
+    one('Energy error', result.energyError, INK);
+    one('Angular momentum error', result.angularMomentumError, INK);
+    one('Separation of the closest pair', result.minSeparation, INK);
     this.note(`${summary}${result.failure ? ` Stopped early: ${result.failure}.` : ''}`);
     const button = document.createElement('button');
     button.textContent = 'Continue from the final state';
-    button.style.cssText = 'background:#ffd166;color:#05060a;border:0;border-radius:4px;padding:6px 12px;cursor:pointer;font:inherit;margin-top:6px';
+    button.className = 'bar-button primary';
     button.addEventListener('click', () => {
       onContinue();
       this.hide();
@@ -121,7 +123,7 @@ export class BatchView {
       yLabel: 'exponent',
       logX: false,
       logY: false,
-      series: [{ label: 'estimate', color: '#ffa94d', x: result.times, y: result.exponent }],
+      series: [{ label: 'estimate', color: INK, x: result.times, y: result.exponent }],
     });
     this.note(
       result.final > 0
@@ -146,17 +148,18 @@ export class BatchView {
   private note(text: string): void {
     const p = document.createElement('p');
     p.textContent = text;
-    p.style.cssText = 'color:#8b95a8;margin:8px 0';
+    p.className = 'batch-note';
     this.body.appendChild(p);
   }
 
   private legend(items: { color: string; text: string }[]): void {
     const box = document.createElement('div');
-    box.style.cssText = 'margin:2px 0 14px';
+    box.className = 'batch-legend';
     for (const item of items) {
       const line = document.createElement('div');
       const swatch = document.createElement('span');
-      swatch.style.cssText = `display:inline-block;width:10px;height:10px;margin-right:6px;background:${item.color}`;
+      swatch.className = 'batch-swatch';
+      swatch.style.background = item.color;
       line.append(swatch, item.text);
       box.appendChild(line);
     }
@@ -166,10 +169,11 @@ export class BatchView {
   private plot(options: PlotOptions): void {
     const label = document.createElement('div');
     label.textContent = options.title;
-    label.style.cssText = 'margin-top:8px';
+    label.className = 'batch-plot-title';
     const holder = document.createElement('div');
     this.body.append(label, holder);
-    const axis = { stroke: '#6c7a93', grid: { stroke: '#1d2433', width: 1 }, ticks: { stroke: '#2b3a55', width: 1 }, font: '10px ui-monospace, monospace' };
+    const font = '10.5px "Archivo Variable", system-ui, sans-serif';
+    const axis = { stroke: INK_3, grid: { stroke: RULE, width: 1 }, ticks: { stroke: RULE_STRONG, width: 1 }, font };
     const scale = (log: boolean) => (log ? { distr: 3 as const, log: 10 as const } : { distr: 1 as const });
     const width = Math.max(300, (this.body.clientWidth || 600) - 24);
     const plot = new uPlot(
@@ -180,8 +184,8 @@ export class BatchView {
         cursor: { show: false },
         scales: { x: { time: false, ...scale(options.logX) }, y: scale(options.logY) },
         axes: [
-          { ...axis, size: 34, label: options.xLabel, labelFont: '10px ui-monospace, monospace', values: (_u, t) => t.map((v) => (v == null ? '' : options.logX ? v.toExponential(0) : String(+v.toPrecision(3)))) },
-          { ...axis, size: 60, label: options.yLabel, labelFont: '10px ui-monospace, monospace', values: (_u, t) => t.map((v) => (v == null ? '' : options.logY ? v.toExponential(0) : String(+v.toPrecision(3)))) },
+          { ...axis, size: 34, label: options.xLabel, labelFont: font, ...(options.logX && { splits: decadeSplits(6) }), values: (_u, t) => t.map((v) => (v == null ? '' : options.logX ? v.toExponential(0) : String(+v.toPrecision(3)))) },
+          { ...axis, size: 60, label: options.yLabel, labelFont: font, ...(options.logY && { splits: decadeSplits(6) }), values: (_u, t) => t.map((v) => (v == null ? '' : options.logY ? v.toExponential(0) : String(+v.toPrecision(3)))) },
         ],
         series: [{}, ...options.series.map((s) => ({ stroke: s.color, width: 1.5, spanGaps: true, points: { show: true, size: 4 } }))],
       },

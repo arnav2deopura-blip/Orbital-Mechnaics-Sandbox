@@ -75,24 +75,32 @@ export class WH implements Integrator {
 
     let central: number = p.centralBody ?? 0;
     if (p.centralBody === undefined) {
-      for (let i = 1; i < 3; i++) if (s.m[i] > s.m[central]) central = i;
+      for (let i = 1; i < s.n; i++) if (s.m[i] > s.m[central]) central = i;
     }
-    const a = (central + 1) % 3;
-    const b = (central + 2) % 3;
-    const dist2 = (i: number): number =>
-      (s.x[3 * i] - s.x[3 * central]) ** 2 +
-      (s.x[3 * i + 1] - s.x[3 * central + 1]) ** 2 +
-      (s.x[3 * i + 2] - s.x[3 * central + 2]) ** 2;
-    const aIsInner = dist2(a) <= dist2(b);
-    this.perm[0] = central;
-    this.perm[1] = aIsInner ? a : b;
-    this.perm[2] = aIsInner ? b : a;
+    if (central >= s.n) central = 0;
+    if (s.n === 2) {
+      // The pair is its own inner orbit: which one is "central" makes no difference.
+      this.perm[0] = central;
+      this.perm[1] = 1 - central;
+      this.perm[2] = 2;
+    } else {
+      const a = (central + 1) % 3;
+      const b = (central + 2) % 3;
+      const dist2 = (i: number): number =>
+        (s.x[3 * i] - s.x[3 * central]) ** 2 +
+        (s.x[3 * i + 1] - s.x[3 * central + 1]) ** 2 +
+        (s.x[3 * i + 2] - s.x[3 * central + 2]) ** 2;
+      const aIsInner = dist2(a) <= dist2(b);
+      this.perm[0] = central;
+      this.perm[1] = aIsInner ? a : b;
+      this.perm[2] = aIsInner ? b : a;
+    }
 
     if (!(s.m[this.perm[0]] + s.m[this.perm[1]] > 0)) {
       throw new RangeError('WH needs the central and inner bodies to have nonzero total mass');
     }
 
-    this.w = createState(s.G, 0);
+    this.w = createState(s.G, 0, s.n);
     this.wa = new Float64Array(STATE_LEN);
     this.jx = new Float64Array(STATE_LEN);
     this.jv = new Float64Array(STATE_LEN);
@@ -105,6 +113,7 @@ export class WH implements Integrator {
   }
 
   step(s: SystemState): number {
+    if (s.n === 2) return this.stepPair(s);
     const h = this.dir * this.params.dt;
     const hh = 0.5 * h;
     const perm = this.perm;
@@ -170,6 +179,44 @@ export class WH implements Integrator {
         s.x[3 * b + c] = w.x[3 * k + c];
         s.v[3 * b + c] = w.v[3 * k + c];
       }
+    }
+    s.t += h;
+    return h;
+  }
+
+  /**
+   * Two bodies. The pair is exactly the Kepler problem WH drifts along, so the interaction is
+   * zero and a step is one drift of h: the relative orbit is advanced exactly (to roundoff and the
+   * Kepler solver's tolerance, whatever the step), and the COM moves in a straight line. Slot 2 is
+   * absent and is not touched. Like the 3-body step, it applies the change in the relative
+   * coordinates rather than rebuilding the bodies, so roundoff stays proportional to the change.
+   */
+  private stepPair(s: SystemState): number {
+    const h = this.dir * this.params.dt;
+    const c = this.perm[0];
+    const o = this.perm[1];
+    const mc = s.m[c];
+    const mo = s.m[o];
+    const M = mc + mo;
+    const wc = mc / M;
+    const wo = mo / M;
+    const jx = this.jx;
+    const jv = this.jv;
+    const jx0 = this.jx0;
+    const jv0 = this.jv0;
+    for (let k = 0; k < 3; k++) {
+      jx[3 + k] = jx0[3 + k] = s.x[3 * o + k] - s.x[3 * c + k];
+      jv[3 + k] = jv0[3 + k] = s.v[3 * o + k] - s.v[3 * c + k];
+    }
+    if (!keplerDrift(s.G * M, h, jx, jv, 3)) this.keplerFailures++;
+    for (let k = 0; k < 3; k++) {
+      const comV = wc * s.v[3 * c + k] + wo * s.v[3 * o + k];
+      const dr = jx[3 + k] - jx0[3 + k];
+      const dv = jv[3 + k] - jv0[3 + k];
+      s.x[3 * c + k] += h * comV - wo * dr;
+      s.x[3 * o + k] += h * comV + wc * dr;
+      s.v[3 * c + k] -= wo * dv;
+      s.v[3 * o + k] += wc * dv;
     }
     s.t += h;
     return h;

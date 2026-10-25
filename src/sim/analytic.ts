@@ -2,8 +2,8 @@ import { keplerDrift } from './kepler';
 import type { SystemState } from './types';
 
 /**
- * The exact solution for a system with one massless body (plan §6, "Analytic error"): the other
- * two are a two-body Kepler problem, which has a closed form whatever the third does, since a
+ * The exact solution for a two-body system, or for a three-body one with one massless body (plan
+ * §6, "Analytic error"): the two massive bodies are a two-body Kepler problem, which has a closed form whatever the third does, since a
  * massless body exerts no force. Built from the state it starts at; error() then compares a
  * later state of the same run with the exact one, in the positions of the two massive bodies.
  *
@@ -42,9 +42,14 @@ export class KeplerReference {
     }
   }
 
-  /** The reference for s, or null if it does not have exactly one massless body, or is softened. */
+  /** The reference for s, or null if it is softened, or has three bodies and not exactly one massless body. */
   static from(s: SystemState): KeplerReference | null {
     if (s.eps2 !== 0) return null;
+    if (s.n === 2) {
+      if (!(s.m[0] > 0 && s.m[1] > 0 && s.G > 0)) return null;
+      const pair = new KeplerReference(s, 0, 1);
+      return Math.hypot(pair.r0[0], pair.r0[1], pair.r0[2]) > 0 ? pair : null;
+    }
     const massless = [0, 1, 2].filter((i) => s.m[i] === 0);
     if (massless.length !== 1) return null;
     const [a, b] = [0, 1, 2].filter((i) => i !== massless[0]);

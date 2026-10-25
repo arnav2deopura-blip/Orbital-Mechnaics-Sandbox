@@ -1,0 +1,53 @@
+/* The color and type tokens both pages share, so the simulator and the Learn page read as one
+   sheet. The values are mirrored in palette.ts for the canvas and the charts. */
+
+:root {
+  --plate: #060607;
+  --ground: #0d0d0f;
+  --raised: #121214;
+  --field: #1a1a1d;
+  --rule: #26262a;
+  --rule-strong: #3b3b40;
+  --ink: #e6e3dc;
+  --ink-2: #a6a39b;
+  --ink-3: #858279;
+  --accent: #ff5a36;
+  --accent-ink: #1a0803;
+  --ok: #8fbf86;
+  --warning: #e5a73c;
+  --danger: #ff5a36;
+  --info: #a6a39b;
+  --body-1: #f2b84b;
+  --body-2: #6aa6ff;
+  --body-3: #ece8dc;
+  --radius: 2px;
+  --font: 'Archivo Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  scrollbar-color: var(--rule-strong) transparent;
+  scrollbar-width: thin;
+  caret-color: var(--accent);
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

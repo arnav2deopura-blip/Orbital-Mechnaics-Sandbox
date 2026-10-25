@@ -3,6 +3,8 @@
 //
 // ?offset=1e6 moves the whole system that far from the origin, which is what the floating
 // origin is for: the picture must look the same.
+import '@fontsource-variable/archivo/wdth.css';
+import './ui/tokens.css';
 import './ui/shell.css';
 import { Controller } from './app/controller';
 import { applyState, decodeShare } from './app/urlState';
@@ -31,6 +33,10 @@ const prefs = loadPrefs();
 const shell = new Shell(root, prefs);
 const view = new SceneView(shell.viewport);
 const controller = new Controller(view, FIGURE_EIGHT, { offset });
+for (const count of ['2', '3'] as const) {
+  const id = prefs.lastPresets[count];
+  if (id) controller.lastPreset[Number(count) as 2 | 3] = id;
+}
 // A link restores a run (plan §7.8), at load and when only the hash changes.
 const fromHash = (): void => {
   const state = decodeShare(location.hash);
@@ -46,6 +52,8 @@ const charts = new Charts(shell.drawer, controller.sampler, () =>
 charts.settings.visible = prefs.charts;
 charts.update(); // at once, or a hidden drawer would show until the first tick
 const batch = new BatchView(shell.stage);
+charts.setBodyCount(controller.bodyCount);
+shell.setBodyCount(controller.bodyCount);
 
 shell.addModules([
   systemModule(controller, view),
@@ -60,6 +68,12 @@ shell.addModules([
   batchModule(controller, batch),
   performanceModule(controller, view),
 ]);
+// Two bodies and three are different systems: what depends on the count is built again.
+controller.onBodyCountChange(() => {
+  shell.rebuildPerBody();
+  shell.setBodyCount(controller.bodyCount);
+  charts.setBodyCount(controller.bodyCount);
+});
 const refreshBar = createTopBar(shell, controller, charts);
 const refreshBanner = createBanner(shell, controller, prefs);
 
@@ -67,8 +81,10 @@ const refresh = (): void => {
   refreshBar();
   refreshBanner();
   shell.refresh();
-  if (prefs.charts !== charts.settings.visible) {
+  const remembered = prefs.lastPresets;
+  if (prefs.charts !== charts.settings.visible || remembered['2'] !== controller.lastPreset[2] || remembered['3'] !== controller.lastPreset[3]) {
     prefs.charts = charts.settings.visible;
+    prefs.lastPresets = { '2': controller.lastPreset[2], '3': controller.lastPreset[3] };
     savePrefs(prefs);
   }
 };

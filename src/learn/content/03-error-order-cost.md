@@ -16,4 +16,4 @@ A high order is not free. The honest measure of **cost** is the number of force 
 A method of order $p$ has a local error of $O(dt^{p+1})$. Over a fixed time $T$ there are $T/dt$ steps, so the global error is $O(dt^p)$. This only holds while $dt$ is small enough for the error expansion to be valid: with steps near the orbital period, every method fails. The batch tool in this app measures the slope of error against step size on a log-log plot, and it should read 1, 2 and 4 for Euler, leapfrog and RK4.
 :::
 
-[Try it: leapfrog and RK4 on the same orbit at the same step](index.html#preset=kepler&integrator=leapfrog&dt=0.05)
+[Try it: leapfrog and RK4 on the same orbit at the same step](index.html#preset=kepler-orbit&integrator=leapfrog&dt=0.05)

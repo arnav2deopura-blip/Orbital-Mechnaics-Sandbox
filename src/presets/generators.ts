@@ -101,6 +101,82 @@ export function kepler(p: { e: number; massRatio: number; inclination: number })
   };
 }
 
+// ---- two bodies --------------------------------------------------------------------------------
+//
+// With two bodies there is nothing to integrate: the Kepler problem is solved exactly, so every
+// system here has a closed form to check against (see sim/analytic.ts). All are in the COM frame
+// with G = 1, a pair's relative orbit being the one-body problem with mu = G (m0 + m1).
+
+/** Apocenter state of an orbit in the xy plane, counterclockwise: the slowest, farthest point. */
+function apocenterState(mu: number, a: number, e: number): { r: Vec; v: Vec } {
+  const ra = a * (1 + e);
+  return { r: [ra, 0, 0], v: [0, Math.sqrt((mu * (1 - e)) / ra), 0] };
+}
+
+/** The two bodies of a relative orbit `rel` (body 1 relative to body 0), in the COM frame. */
+function pairBodies(masses: [number, number], rel: { r: Vec; v: Vec }, names: [string, string]): PresetBody[] {
+  const M = masses[0] + masses[1];
+  const scale = (v: Vec, w: number): Vec => [w * v[0], w * v[1], w * v[2]];
+  return [0, 1].map((i) => {
+    const w = i === 0 ? -masses[1] / M : masses[0] / M;
+    return { name: names[i], m: masses[i], x: scale(rel.r, w), v: scale(rel.v, w) };
+  });
+}
+
+/**
+ * Two bodies on a Kepler orbit with semi-major axis 1, started at pericenter (or at apocenter, for
+ * the plunging orbit, which is calm there and fast at the end). The pair is exactly Keplerian.
+ * `tilt` turns the plane of the orbit about the x axis, so its tilt shows in the 3D view.
+ */
+export function keplerOrbit(p: { e: number; massRatio: number; tilt: number; from?: 'pericenter' | 'apocenter' }): Generated {
+  const mu = 1 + p.massRatio;
+  const rel = p.from === 'apocenter' ? apocenterState(mu, 1, p.e) : pericenterState(mu, 1, p.e, 0);
+  const bodies = pairBodies([1, p.massRatio], rel, ['Primary', 'Secondary']);
+  return { bodies: tiltBodies(bodies, p.tilt), period: 2 * Math.PI * Math.sqrt(1 / mu) };
+}
+
+/** Two masses on a circle of radius 1 (relative), the simplest closed orbit: a step of T/400 suits a second-order method. */
+export function circularBinary(p: { massRatio: number; tilt: number }): Generated {
+  const mu = 1 + p.massRatio;
+  const period = 2 * Math.PI * Math.sqrt(1 / mu);
+  const bodies = pairBodies([1, p.massRatio], pericenterState(mu, 1, 0, 0), ['Body 1', 'Body 2']);
+  return { bodies: tiltBodies(bodies, p.tilt), period, dt: period / 400 };
+}
+
+/** Distance from which the flyby starts, in pericenter distances. */
+const FLYBY_START = 15;
+
+/**
+ * An unbound pass: a hyperbola with pericenter distance 1 and eccentricity e > 1, started
+ * FLYBY_START pericenter distances out on the way in. "Period" here is the time scale of the
+ * pericenter pass, 2 pi sqrt(rp^3 / mu), which is what T_char and the charts measure time in.
+ */
+export function hyperbolicFlyby(p: { e: number; massRatio: number; tilt: number }): Generated {
+  const mu = 1 + p.massRatio;
+  const rp = 1;
+  const semiLatus = rp * (1 + p.e); // p = a (e^2 - 1) = rp (1 + e)
+  const r = FLYBY_START * rp;
+  const f = -Math.acos((semiLatus / r - 1) / p.e); // on the way in
+  const k = Math.sqrt(mu / semiLatus);
+  const rel = { r: [r * Math.cos(f), r * Math.sin(f), 0] as Vec, v: [-k * Math.sin(f), k * (p.e + Math.cos(f)), 0] as Vec };
+  const bodies = pairBodies([1, p.massRatio], rel, ['Primary', 'Secondary']);
+  const period = 2 * Math.PI * Math.sqrt((rp * rp * rp) / mu);
+  return { bodies: tiltBodies(bodies, p.tilt), period, dt: period / 200, size: 2.2 * r };
+}
+
+/**
+ * Two bodies to experiment with: masses 1 and 0.4 a distance 2 apart, moving sideways at `speed`
+ * times the speed of a circular orbit. Below 1 the orbit is an ellipse started at its far point,
+ * above 1 an ellipse started at its near point, and from sqrt 2 up it is not bound.
+ */
+export function sandboxPair(p: { speed: number; tilt: number }): Generated {
+  const masses: [number, number] = [1, 0.4];
+  const mu = masses[0] + masses[1];
+  const r = 2;
+  const rel = { r: [r, 0, 0] as Vec, v: [0, p.speed * Math.sqrt(mu / r), 0] as Vec };
+  return { bodies: tiltBodies(pairBodies(masses, rel, ['Body 1', 'Body 2']), p.tilt), period: 2 * Math.PI * Math.sqrt((r * r * r) / mu) };
+}
+
 /** Lagrange's equilateral solution with masses (mass, 1, 1), the whole system tilted by `tilt`. */
 export function lagrange(p: { mass: number; tilt: number }): Generated {
   const { bodies, omega } = lagrangeBodies([p.mass, 1, 1], 2, 1, ['Body 1', 'Body 2', 'Body 3']);

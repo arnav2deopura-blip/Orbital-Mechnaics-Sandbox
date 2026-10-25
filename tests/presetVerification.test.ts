@@ -42,8 +42,8 @@ function expectReturns(preset: Preset, tolerance: number, bodies: 2 | 3 = 3): vo
 const SUVAKOV = PRESETS.filter((p) => p.id.startsWith('suvakov-'));
 
 /** Presets whose claim is checked in this file, and the presets whose claim is checked in generators.test.ts. */
-const CHECKED_HERE = ['figure-eight', 'kepler', 'lagrange', 'euler', 'pythagorean', ...SUVAKOV.map((p) => p.id)];
-const CHECKED_IN_GENERATORS = ['trojan', 'star-planet-moon', 'zlk'];
+const CHECKED_HERE = ['figure-eight', 'kepler', 'lagrange', 'euler', 'pythagorean', 'kepler-orbit', 'circular-binary', 'near-radial', ...SUVAKOV.map((p) => p.id)];
+const CHECKED_IN_GENERATORS = ['trojan', 'star-planet-moon', 'zlk', 'hyperbolic-flyby'];
 
 describe('which presets claim to be verified', () => {
   it('is exactly the set whose claim is checked by a test', () => {
@@ -57,6 +57,7 @@ describe('which presets claim to be verified', () => {
 
   it('leaves the sandbox unverified: it claims nothing', () => {
     expect(byId('sandbox').verified).toBe(false);
+    expect(byId('sandbox-2').verified).toBe(false);
   });
 });
 
@@ -86,6 +87,22 @@ describe('periodic presets return to their start', () => {
 
   it('Kepler: the massive pair returns after one period (the test particle has its own)', () => {
     expectReturns(byId('kepler'), 1e-9, 2);
+  });
+
+  it('the 2-body presets: the pair returns after one period, with slot 2 absent', () => {
+    expectReturns(byId('kepler-orbit'), 1e-9, 2);
+    expectReturns(byId('circular-binary'), 1e-9, 2);
+    expect(instantiate(byId('kepler-orbit')).state.n).toBe(2);
+  });
+
+  it('the near-radial plunge returns through a pericenter pass 100 times closer than where it starts', () => {
+    const preset = byId('near-radial');
+    const { state, period } = instantiate(preset);
+    const d = (s: typeof state): number => Math.hypot(s.x[3] - s.x[0], s.x[4] - s.x[1], s.x[5] - s.x[2]);
+    expect(d(state)).toBeCloseTo(1.99, 6); // a (1 + e): far point
+    const check = returnCheck(state, period as number, { bodies: 2, window: 0.01, samples: 200 });
+    expect(check.distanceAtPeriod).toBeLessThan(1e-6);
+    expect(Math.abs(check.returnTime - (period as number)) / (period as number)).toBeLessThan(2e-3);
   });
 
   it('Lagrange and Euler: exact rigid rotations, which close after one period', () => {

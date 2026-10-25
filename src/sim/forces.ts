@@ -1,7 +1,8 @@
 import type { CostCounters, SystemState } from './types';
 
 /**
- * Accelerations of the three bodies at positions x, written to a (plan §3.1).
+ * Accelerations of the bodies at positions x, written to a (plan §3.1). With s.n = 2 only the
+ * pair (0, 1) acts and slot 2, which is absent, gets exactly zero.
  *
  * x is a parameter rather than s.x so integrators can evaluate at stage or predictor
  * positions (RK4, IAS15, WH) without disturbing the synchronized state. s supplies
@@ -23,6 +24,11 @@ export function computeAccel(
   a: Float64Array,
   counters?: CostCounters,
 ): void {
+  if (s.n === 2) {
+    pairAccel(s, x, a);
+    if (counters !== undefined) counters.forceEvals++;
+    return;
+  }
   const m0 = s.m[0];
   const m1 = s.m[1];
   const m2 = s.m[2];
@@ -97,6 +103,26 @@ export function computeAccel(
   if (counters !== undefined) counters.forceEvals++;
 }
 
+/** The two-body kernel: the pair (0, 1) of computeAccel, with slot 2 left at zero. */
+function pairAccel(s: SystemState, x: Float64Array, a: Float64Array): void {
+  const dx = x[3] - x[0];
+  const dy = x[4] - x[1];
+  const dz = x[5] - x[2];
+  const r2 = dx * dx + dy * dy + dz * dz + s.eps2;
+  const k = s.G / (r2 * Math.sqrt(r2));
+  const ki = k * s.m[1]; // pull on body 0, toward body 1
+  const kj = k * s.m[0]; // pull on body 1, toward body 0
+  a[0] = ki * dx;
+  a[1] = ki * dy;
+  a[2] = ki * dz;
+  a[3] = -kj * dx;
+  a[4] = -kj * dy;
+  a[5] = -kj * dz;
+  a[6] = 0;
+  a[7] = 0;
+  a[8] = 0;
+}
+
 /**
  * U = -G sum_{i<j} m_i m_j / sqrt(r_ij^2 + eps2).
  * Uses the softened potential whenever eps2 > 0; the unsoftened one would make the
@@ -111,6 +137,7 @@ export function potentialEnergy(s: SystemState): number {
   let dy = x[4] - x[1];
   let dz = x[5] - x[2];
   let u = (m[0] * m[1]) / Math.sqrt(dx * dx + dy * dy + dz * dz + eps2);
+  if (s.n === 2) return -s.G * u;
 
   dx = x[6] - x[0];
   dy = x[7] - x[1];

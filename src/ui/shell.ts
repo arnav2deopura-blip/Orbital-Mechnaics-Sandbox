@@ -1,3 +1,5 @@
+import { el } from './dom';
+import { disposePanes } from './modules/common';
 import { DEFAULT_DOCK_WIDTH, savePrefs } from './prefs';
 import type { ModulePrefs, Prefs } from './prefs';
 
@@ -12,6 +14,8 @@ export interface ModuleSpec {
   summary: string;
   /** Open on a first visit. */
   shownByDefault: boolean;
+  /** Its controls depend on how many bodies there are: it is built again when that changes. */
+  perBody?: boolean;
   /** Folded on a first visit. */
   collapsedByDefault?: boolean;
   /** Fills the card. Returns what refreshes it, called only while the card is open and unfolded. */
@@ -21,6 +25,7 @@ export interface ModuleSpec {
 interface Card {
   spec: ModuleSpec;
   root: HTMLElement;
+  body: HTMLElement;
   toggle: HTMLButtonElement;
   refresh: () => void;
 }
@@ -103,7 +108,7 @@ export class Shell {
       root.append(head, body);
       this.cardsHost.appendChild(root);
 
-      const card: Card = { spec, root, toggle, refresh: spec.build(body) };
+      const card: Card = { spec, root, body, toggle, refresh: spec.build(body) };
       this.cards.push(card);
       toggle.addEventListener('click', () => {
         state.collapsed = !state.collapsed;
@@ -114,6 +119,22 @@ export class Shell {
       this.applyCard(card);
     }
     this.applyEmpty();
+  }
+
+  /** Builds the modules that depend on the number of bodies again: it changed, and with it their controls. */
+  rebuildPerBody(): void {
+    for (const card of this.cards) {
+      if (!card.spec.perBody) continue;
+      disposePanes(card.body);
+      card.body.replaceChildren();
+      card.refresh = card.spec.build(card.body);
+      this.applyCard(card);
+    }
+  }
+
+  /** What the view is of, for screen readers: the bodies as they are now. */
+  setBodyCount(count: number): void {
+    this.viewport.setAttribute('aria-label', `The ${count === 2 ? 'two' : 'three'} bodies in 3D. Drag to orbit, scroll to zoom.`);
   }
 
   /** Refreshes the cards that can be seen. */
@@ -229,8 +250,4 @@ export class Shell {
   }
 }
 
-export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = ''): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  return node;
-}
+export { el };

@@ -24,6 +24,6 @@ To show how an integrator fails, and (as symplectic Euler) to show that reorderi
 Explicit Euler is $\mathbf x\leftarrow\mathbf x+\mathbf v\,dt$, $\mathbf v\leftarrow\mathbf v+\mathbf a(\mathbf x)\,dt$ with the old values on the right. Symplectic Euler is $\mathbf v\leftarrow\mathbf v+\mathbf a(\mathbf x)\,dt$, $\mathbf x\leftarrow\mathbf x+\mathbf v\,dt$ with the *new* velocity. The first multiplies the phase-space area by $1+O(dt^2)$ every step, which is the growth in energy; the second preserves it exactly.
 :::
 
-[Try it: explicit Euler on a Kepler orbit](index.html#preset=kepler&integrator=euler&dt=0.005&speed=1)
+[Try it: explicit Euler on a Kepler orbit](index.html#preset=kepler-orbit&integrator=euler&dt=0.005&speed=1)
 
-[Try it: symplectic Euler on the same orbit](index.html#preset=kepler&integrator=symplectic-euler&dt=0.005&speed=1)
+[Try it: symplectic Euler on the same orbit](index.html#preset=kepler-orbit&integrator=symplectic-euler&dt=0.005&speed=1)

@@ -217,3 +217,16 @@ export function stateError(s: SystemState, ref: SystemState): number {
   for (let i = 0; i < 9; i++) worst = Math.max(worst, Math.abs(s.x[i] - ref.x[i]), Math.abs(s.v[i] - ref.v[i]));
   return worst;
 }
+
+/**
+ * A two-body system (n = 2): the pair of kepler(e, f0, mA, mB) with slot 2 absent. The COM is at
+ * rest at the origin and G = 1. Period T = 2 pi sqrt(a^3 / (G M)) with a = 1.
+ */
+export function keplerPair(e = 0.5, f0 = 1, mA = 1, mB = 0.3): { s: SystemState; T: number } {
+  const { s, T } = kepler(e, f0, mA, mB);
+  const pair = createState(1, 0, 2);
+  pair.m.set([mA, mB, 0]);
+  pair.x.set(s.x.subarray(0, 6));
+  pair.v.set(s.v.subarray(0, 6));
+  return { s: pair, T };
+}

@@ -127,8 +127,8 @@ export class FloatingOrigin {
   private readonly focus = new Float64Array(3);
 
   /** Moves the origin onto the focus of the camera mode. In free mode it stays put. */
-  follow(mode: CameraMode, x: Float64Array, m: Float64Array): void {
-    if (focusPoint(mode, x, m, this.focus)) this.world.set(this.focus);
+  follow(mode: CameraMode, x: Float64Array, m: Float64Array, n = 3): void {
+    if (focusPoint(mode, x, m, this.focus, n)) this.world.set(this.focus);
   }
 
   /** Folds a render-space offset into the origin: the point at that offset becomes the origin. */
@@ -143,16 +143,17 @@ export class FloatingOrigin {
  * Writes the world point a camera mode looks at into out, in Float64, and returns true. Free
  * mode has none (the user pans) and returns false.
  */
-export function focusPoint(mode: CameraMode, x: Float64Array, m: Float64Array, out: Float64Array): boolean {
+export function focusPoint(mode: CameraMode, x: Float64Array, m: Float64Array, out: Float64Array, n = 3): boolean {
   if (mode === 'free') return false;
-  if (mode === 'com' || mode === 'corotating') {
+  const body = mode === 'body0' ? 0 : mode === 'body1' ? 1 : 2;
+  // With two bodies there is no body 3: following it falls back to the center of mass.
+  if (mode === 'com' || mode === 'corotating' || body >= n) {
     const total = m[0] + m[1] + m[2];
     for (let c = 0; c < 3; c++) {
-      out[c] = total > 0 ? (m[0] * x[c] + m[1] * x[3 + c] + m[2] * x[6 + c]) / total : (x[c] + x[3 + c] + x[6 + c]) / 3;
+      out[c] = total > 0 ? (m[0] * x[c] + m[1] * x[3 + c] + m[2] * x[6 + c]) / total : (x[c] + x[3 + c] + x[6 + c]) / n;
     }
     return true;
   }
-  const body = mode === 'body0' ? 0 : mode === 'body1' ? 1 : 2;
   out[0] = x[3 * body];
   out[1] = x[3 * body + 1];
   out[2] = x[3 * body + 2];
@@ -183,9 +184,9 @@ export class SceneView {
   private readonly ghostBodies = new Bodies(0.4);
   private readonly ghostTrails: Trail[];
   private readonly trails: Trail[];
-  private readonly floor = new GridPlane(0x5b7db8, 1);
+  private readonly floor = new GridPlane(0x8a8a92, 0.8);
   /** The wall perpendicular to e1, and the one perpendicular to e2. */
-  private readonly walls = [new GridPlane(0x466694, 0.75), new GridPlane(0x466694, 0.75)];
+  private readonly walls = [new GridPlane(0x77777f, 0.6), new GridPlane(0x77777f, 0.6)];
   private readonly dropLines = new DropLines();
   private readonly arrows = new VectorArrows();
   private readonly gizmo: AxesGizmo;
@@ -227,7 +228,7 @@ export class SceneView {
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     host.appendChild(canvas);
-    this.scene.background = new THREE.Color(0x05060a);
+    this.scene.background = new THREE.Color(0x060607);
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
     this.camera.up.set(0, 0, 1); // the orbital plane is xy
@@ -272,7 +273,7 @@ export class SceneView {
   frameAll(s: SystemState): void {
     const M = s.m[0] + s.m[1] + s.m[2];
     let radius = 0;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < s.n; i++) {
       let r2 = 0;
       for (let c = 0; c < 3; c++) {
         const com = M > 0 ? (s.m[0] * s.x[c] + s.m[1] * s.x[3 + c] + s.m[2] * s.x[6 + c]) / M : 0;
@@ -295,7 +296,7 @@ export class SceneView {
   recordSample(s: SystemState): void {
     const o = this.trailOrigin;
     if (!this.trailsFollowFocus(s)) o.fill(0);
-    for (let i = 0; i < 3; i++) this.trails[i].push(s.x[3 * i] - o[0], s.x[3 * i + 1] - o[1], s.x[3 * i + 2] - o[2]);
+    for (let i = 0; i < s.n; i++) this.trails[i].push(s.x[3 * i] - o[0], s.x[3 * i + 1] - o[1], s.x[3 * i + 2] - o[2]);
   }
 
   /** Draws `state` (updated in place by the caller) as a ghost over the system, or stops doing so with null. */
@@ -305,7 +306,7 @@ export class SceneView {
 
   /** Stores a trail sample for each body of the comparison twin. Always in the world frame (see renderState). */
   recordGhostSample(s: SystemState): void {
-    for (let i = 0; i < 3; i++) this.ghostTrails[i].push(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]);
+    for (let i = 0; i < s.n; i++) this.ghostTrails[i].push(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]);
   }
 
   clearTrails(): void {
@@ -346,7 +347,7 @@ export class SceneView {
     const o = this.origin.world;
 
     // Put the focus at the render origin, and keep the camera orbiting it.
-    this.origin.follow(mode, s.x, s.m);
+    this.origin.follow(mode, s.x, s.m, s.n);
     // Trails recorded in one frame make no sense in another: start them over when it changes.
     const ghost = this.ghost;
     if (mode !== this.trailedMode || settings.trailFrame !== this.trailedFrame || (ghost !== null) !== this.trailedGhost) {
@@ -407,6 +408,7 @@ export class SceneView {
       o,
       settings.bodyScale * BODY_RADIUS_FRACTION * this.systemScale,
       MIN_BODY_PIXELS * worldPerPixel,
+      s.n,
     );
 
     // Trails that follow the focus are stored relative to it, so they are drawn relative to the render origin.
@@ -416,9 +418,10 @@ export class SceneView {
     if (!toFocus) tip.fill(0);
     for (let i = 0; i < 3; i++) {
       const trail = this.trails[i];
-      trail.line.visible = settings.showTrails;
-      trail.shadow.visible = settings.showTrails && settings.showShadows;
-      if (!settings.showTrails) continue;
+      const present = i < s.n;
+      trail.line.visible = present && settings.showTrails;
+      trail.shadow.visible = present && settings.showTrails && settings.showShadows;
+      if (!present || !settings.showTrails) continue;
       trail.minStep = TRAIL_DETAIL * d;
       trail.fade = settings.trailFade;
       trail.rebaseIfFar(to[0], to[1], to[2], REBASE_DISTANCE * d);
@@ -432,7 +435,7 @@ export class SceneView {
     // The twin: ghost bodies and trails, in the world frame (the twin's samples are not taken at the
     // same instants as the first run's, so a frame that moves with the focus could not be shared).
     this.ghostBodies.group.visible = ghost !== null;
-    for (let i = 0; i < 3; i++) this.ghostTrails[i].line.visible = ghost !== null && settings.showTrails;
+    for (let i = 0; i < 3; i++) this.ghostTrails[i].line.visible = ghost !== null && i < ghost.n && settings.showTrails;
     if (ghost !== null) {
       this.ghostBodies.update(
         ghost.x,
@@ -440,9 +443,10 @@ export class SceneView {
         o,
         settings.bodyScale * BODY_RADIUS_FRACTION * this.systemScale * 1.15,
         MIN_BODY_PIXELS * worldPerPixel * 1.15,
+        ghost.n,
       );
       if (settings.showTrails) {
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < ghost.n; i++) {
           const trail = this.ghostTrails[i];
           trail.minStep = TRAIL_DETAIL * d;
           trail.fade = settings.trailFade;
@@ -456,11 +460,11 @@ export class SceneView {
 
     this.updateGrids(d);
     this.dropLines.visible = settings.showDropLines;
-    if (settings.showDropLines) this.dropLines.update(s.x, o, frame, this.renderer.getPixelRatio());
+    if (settings.showDropLines) this.dropLines.update(s.x, o, frame, this.renderer.getPixelRatio(), s.n);
     this.arrows.update(s, o, d, settings.showVelocity, settings.showAcceleration);
     this.renderer.render(this.scene, this.camera);
     this.gizmo.render(this.renderer, this.camera, frame, settings.showAxes);
-    this.offscreen.update(s.x, o, this.camera, this.width, this.height);
+    this.offscreen.update(s.x, o, this.camera, this.width, this.height, s.n);
     this.stats.renderMs = performance.now() - t0;
   }
 
@@ -524,7 +528,7 @@ export class SceneView {
   /** True, with the focus in trailOrigin, when trails are stored relative to what the camera follows. */
   private trailsFollowFocus(s: SystemState): boolean {
     if (this.ghost !== null) return false; // a comparison draws both runs' trails in the world frame
-    return this.settings.trailFrame === 'focus' && focusPoint(this.settings.cameraMode, s.x, s.m, this.trailOrigin);
+    return this.settings.trailFrame === 'focus' && focusPoint(this.settings.cameraMode, s.x, s.m, this.trailOrigin, s.n);
   }
 
   /** Auto quality (plan §13): see decideQuality(). */

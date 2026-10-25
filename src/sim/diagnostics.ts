@@ -37,6 +37,7 @@ export function createDiagnostics(): Diagnostics {
 
 export function measure(s: SystemState, out: Diagnostics): void {
   const { m, x, v } = s;
+  const n = s.n;
   let kinetic = 0;
   let lx = 0;
   let ly = 0;
@@ -47,7 +48,7 @@ export function measure(s: SystemState, out: Diagnostics): void {
   let cx = 0;
   let cy = 0;
   let cz = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < n; i++) {
     const mi = m[i];
     const xi = x[3 * i];
     const yi = x[3 * i + 1];
@@ -72,9 +73,9 @@ export function measure(s: SystemState, out: Diagnostics): void {
     cy /= M;
     cz /= M;
   } else {
-    cx = (x[0] + x[3] + x[6]) / 3;
-    cy = (x[1] + x[4] + x[7]) / 3;
-    cz = (x[2] + x[5] + x[8]) / 3;
+    cx = (x[0] + x[3] + x[6]) / n;
+    cy = (x[1] + x[4] + x[7]) / n;
+    cz = (x[2] + x[5] + x[8]) / n;
   }
 
   out.kinetic = kinetic;
@@ -89,11 +90,14 @@ export function measure(s: SystemState, out: Diagnostics): void {
   out.com[0] = cx;
   out.com[1] = cy;
   out.com[2] = cz;
-  out.minSeparation = Math.min(
-    Math.hypot(x[3] - x[0], x[4] - x[1], x[5] - x[2]),
-    Math.hypot(x[6] - x[0], x[7] - x[1], x[8] - x[2]),
-    Math.hypot(x[6] - x[3], x[7] - x[4], x[8] - x[5]),
-  );
+  out.minSeparation = Math.hypot(x[3] - x[0], x[4] - x[1], x[5] - x[2]);
+  if (n === 3) {
+    out.minSeparation = Math.min(
+      out.minSeparation,
+      Math.hypot(x[6] - x[0], x[7] - x[1], x[8] - x[2]),
+      Math.hypot(x[6] - x[3], x[7] - x[4], x[8] - x[5]),
+    );
+  }
 }
 
 /** The reference values (plan §3.2) the running errors are measured against. */
@@ -127,7 +131,7 @@ export function createReference(s: SystemState, period?: number): Reference {
 
   let Lscale = 0;
   let sumMx = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < s.n; i++) {
     const r = Math.hypot(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]);
     Lscale += s.m[i] * r * Math.hypot(s.v[3 * i], s.v[3 * i + 1], s.v[3 * i + 2]);
     sumMx += s.m[i] * r;
@@ -179,8 +183,8 @@ export function characteristicSpeed(s: SystemState): number {
  */
 export function characteristicTime(s: SystemState): number {
   let best = Infinity;
-  for (let i = 0; i < 3; i++) {
-    for (let j = i + 1; j < 3; j++) {
+  for (let i = 0; i < s.n; i++) {
+    for (let j = i + 1; j < s.n; j++) {
       const mu = s.G * (s.m[i] + s.m[j]);
       const r = Math.hypot(
         s.x[3 * j] - s.x[3 * i],
@@ -198,7 +202,7 @@ export function systemSize(s: SystemState): number {
   const d = createDiagnostics();
   measure(s, d);
   let r = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < s.n; i++) {
     r = Math.max(
       r,
       Math.hypot(s.x[3 * i] - d.com[0], s.x[3 * i + 1] - d.com[1], s.x[3 * i + 2] - d.com[2]),

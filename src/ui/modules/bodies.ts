@@ -4,7 +4,7 @@ import { createIntegrator } from '../../sim/integrators';
 import type { IntegratorId } from '../../sim/integrators/types';
 import type { Axis, NudgeDirection } from '../../sim/transforms';
 import type { ModuleSpec } from '../shell';
-import { BODY_OPTIONS, INTEGRATOR_OPTIONS, learnLink, NUDGE_DIRECTIONS, paneIn, prose, REFRESH_MS, setTitle } from './common';
+import { bodyOptions, INTEGRATOR_OPTIONS, learnLink, NUDGE_DIRECTIONS, paneIn, prose, REFRESH_MS, setTitle } from './common';
 
 // The modules that change the system: the body editor and physics (plan §7.1), the nudge for
 // chaos (plan §7.2), and comparison runs (plan §7.4).
@@ -12,14 +12,15 @@ import { BODY_OPTIONS, INTEGRATOR_OPTIONS, learnLink, NUDGE_DIRECTIONS, paneIn, 
 export function bodiesModule(controller: Controller): ModuleSpec {
   return {
     id: 'bodies',
-    title: 'Bodies & physics',
-    summary: 'Edit each mass, position and velocity (z too), tilt the system, G and softening',
+    title: 'Bodies & Physics',
+    summary: 'Edit each mass, position and velocity, tilt the system, G and softening',
     shownByDefault: false,
+    perBody: true,
     build(body) {
       const { sim } = controller;
       prose(body, 'Change the numbers, then Apply. The run pauses and every error restarts from the new state. If the values make a system that cannot hold together, a warning says so and offers a fix.');
       const pane = paneIn(body);
-      controller.draft.forEach((draft, i) => {
+      controller.draft.slice(0, sim.state.n).forEach((draft, i) => {
         const sub = pane.addFolder({ title: `Body ${i + 1}`, expanded: i === 0 });
         sub.addBinding(draft, 'm', { label: 'mass', min: 0, step: 0.001 });
         const axes = { x: { step: 0.01 }, y: { step: 0.01 }, z: { step: 0.01 } };
@@ -77,10 +78,12 @@ export function perturbModule(controller: Controller): ModuleSpec {
     title: 'Perturb (chaos)',
     summary: 'Nudge one body by a tiny amount and watch what it changes',
     shownByDefault: false,
+    perBody: true,
     build(body) {
       const pane = paneIn(body);
-      const spec = { body: 2, target: 'velocity', direction: 'normal', exponent: -6, recenter: false };
-      pane.addBinding(spec, 'body', { label: 'body', options: BODY_OPTIONS });
+      const options = bodyOptions(controller.sim.state.n);
+      const spec = { body: controller.sim.state.n - 1, target: 'velocity', direction: 'normal', exponent: -6, recenter: false };
+      pane.addBinding(spec, 'body', { label: 'body', options });
       pane.addBinding(spec, 'target', { label: 'nudge its', options: { velocity: 'velocity', position: 'position' } });
       setTitle(pane.addBinding(spec, 'direction', { label: 'direction', options: NUDGE_DIRECTIONS }), 'Out of plane is along the angular momentum: it takes a planar system into 3D.');
       setTitle(
@@ -105,17 +108,19 @@ export function compareModule(controller: Controller): ModuleSpec {
     title: 'Compare',
     summary: 'Run a nudged twin, or a second method, on top of this one',
     shownByDefault: false,
+    perBody: true,
     build(body) {
       const { sim } = controller;
       const pane = paneIn(body);
-      const setup = { kind: 'twin', body: 2, target: 'position', direction: 'normal', exponent: -9, integrator: 'rk4', dtExponent: -3, equalize: true, message: '' };
+      const options = bodyOptions(sim.state.n);
+      const setup = { kind: 'twin', body: sim.state.n - 1, target: 'position', direction: 'normal', exponent: -9, integrator: 'rk4', dtExponent: -3, equalize: true, message: '' };
 
       setTitle(
         pane.addBinding(setup, 'kind', { label: 'compare', options: { 'Ghost twin (nudged)': 'twin', 'Another method': 'method' } }),
         'A twin is the same method with a tiny nudge to one body: in a chaotic system it separates exponentially. Another method runs a different integrator on the identical start.',
       );
       const twinBindings = [
-        pane.addBinding(setup, 'body', { label: 'nudge body', options: BODY_OPTIONS }),
+        pane.addBinding(setup, 'body', { label: 'nudge body', options }),
         pane.addBinding(setup, 'target', { label: 'nudge its', options: { position: 'position', velocity: 'velocity' } }),
         pane.addBinding(setup, 'direction', { label: 'direction', options: NUDGE_DIRECTIONS }),
         pane.addBinding(setup, 'exponent', { label: 'size', min: -14, max: -2, step: 0.1, format: (value: number) => (10 ** value).toExponential(0) }),

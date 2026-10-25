@@ -1,6 +1,6 @@
 import type { BindingApi, BladeApi, FolderApi } from '@tweakpane/core';
 import { Pane } from 'tweakpane';
-import { el } from '../shell';
+import { el } from '../dom';
 
 // What the modules share: Tweakpane inside a card, formats, menus, and small bits of HTML.
 
@@ -28,7 +28,10 @@ export const INTEGRATOR_OPTIONS: Record<string, string> = {
   'Symplectic Euler': 'symplectic-euler',
 };
 
-export const BODY_OPTIONS: Record<string, number> = { 'Body 1': 0, 'Body 2': 1, 'Body 3': 2 };
+/** The bodies to choose from, for a system of n. */
+export function bodyOptions(n: number): Record<string, number> {
+  return Object.fromEntries(Array.from({ length: n }, (_, i) => [`Body ${i + 1}`, i]));
+}
 
 export const NUDGE_DIRECTIONS = { 'Out of plane (L)': 'normal', z: 'z', x: 'x', y: 'y', Random: 'random' };
 
@@ -36,7 +39,17 @@ export const NUDGE_DIRECTIONS = { 'Out of plane (L)': 'normal', z: 'z', x: 'x', 
 export function paneIn(parent: HTMLElement): Pane {
   const holder = el('div', 'module-pane');
   parent.appendChild(holder);
-  return new Pane({ container: holder });
+  const pane = new Pane({ container: holder });
+  panes.set(parent, [...(panes.get(parent) ?? []), pane]);
+  return pane;
+}
+
+/** The panes of each card, so a card built again does not leave the old ones (and their timers) running. */
+const panes = new WeakMap<HTMLElement, Pane[]>();
+
+export function disposePanes(parent: HTMLElement): void {
+  for (const pane of panes.get(parent) ?? []) pane.dispose();
+  panes.delete(parent);
 }
 
 export function setTitle(binding: BindingApi | BladeApi, text: string | undefined): void {

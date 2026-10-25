@@ -30,7 +30,7 @@ class StubView implements ViewPort {
 }
 
 function state(m: number[], x: number[], v: number[]): SystemState {
-  return { t: 0, G: 1, eps2: 0, m: Float64Array.from(m), x: Float64Array.from(x), v: Float64Array.from(v) };
+  return { n: 3, t: 0, G: 1, eps2: 0, m: Float64Array.from(m), x: Float64Array.from(x), v: Float64Array.from(v) };
 }
 
 function energy(s: SystemState): { kinetic: number; potential: number; energy: number } {

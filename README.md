@@ -1,7 +1,7 @@
 # Three-body integrator explorer
 
-An interactive, in-browser sandbox for the gravitational three-body problem and the numerical
-methods used to follow it: **Euler** (explicit and symplectic), **leapfrog**, **RK4**,
+An interactive, in-browser sandbox for the gravitational three-body problem (and, with one switch,
+the exactly solvable two-body problem) and the numerical methods used to follow it: **Euler** (explicit and symplectic), **leapfrog**, **RK4**,
 **Wisdom-Holman** and **IAS15**. It runs in three dimensions, with a height for every body, and shows
 what each method gets right and wrong: conservation laws, order, cost, reversibility, chaos.
 
@@ -27,10 +27,17 @@ Pages, Netlify, a school server) at any path. `.github/workflows/ci.yml` runs th
 
 ## What is in the simulator
 
-- **Layout**: a top bar with the preset, play/pause, speed and method, plus switches for the charts
+- **Two bodies or three**: the *Bodies* switch in the top bar runs a pair instead of a triple, and
+  the whole interface follows: the preset menu lists only the presets of that count, the modules
+  drop the third body (its editor, its nudge, its camera focus, the Routh ratio), the warnings and
+  charts speak of "the pair", and Wisdom-Holman, which is exact for a pair, says so. A pair is not a
+  triple with a massless third body: `SystemState.n` is 2, slot 2 stays zero for good, and the force
+  kernel, diagnostics, events and renderer all stop at `n`. Every method can be checked against the
+  exact Kepler orbit (the *Error against the exact Kepler solution* chart).
+- **Layout**: a top bar with the bodies switch, preset, play/pause, speed and method, plus switches for the charts
   (or press `C`), the modules and the Learn page. The rest of the controls are modules in a side panel:
-  System, Method, Live numbers, View, Time & events, Bodies & physics, Perturb, Compare, Chart data,
-  Batch jobs and Performance. Each one can be folded or closed, and the Modules menu brings it back.
+  System, Method, Live Numbers, View, Time & Events, Bodies & Physics, Perturb (chaos), Compare,
+  Chart Data & Export, Batch Jobs and Performance. Each one can be folded or closed, and the Modules menu brings it back.
   Which modules are open, the panel's width and the charts switch are remembered in the browser.
   On a phone the panel is a sheet that slides up.
 - **Warnings**: when a system cannot work (it is unbound, two bodies start on top of each other and fall
@@ -40,9 +47,16 @@ Pages, Netlify, a school server) at any path. `.github/workflows/ci.yml` runs th
   every body, or load the preset closest to the user's own values (`src/app/health.ts`,
   `src/app/suggest.ts`). An energy blow-up pauses the run once. Arrows at the edge of the view point
   to bodies that are off screen.
-- **Presets**: Kepler, figure-eight, Lagrange, Euler collinear, Sun-Jupiter-Trojan, star-planet-moon,
-  Pythagorean, a Kozai triple, seven Šuvakov-Dmitrašinović orbits, and a sandbox. Most have sliders
-  (inclination, mass ratio, tilt). Each says whether a test has checked it.
+- **Presets**, three bodies: a Kepler pair with a test particle, figure-eight, Lagrange, Euler
+  collinear, Sun-Jupiter-Trojan, star-planet-moon, Pythagorean, a Kozai triple, seven
+  Šuvakov-Dmitrašinović orbits, and a sandbox. Two bodies: a Kepler orbit, a circular binary, a
+  near-radial plunge, a hyperbolic flyby and a sandbox. Most have sliders (eccentricity, mass ratio,
+  inclination, tilt). Each says whether a test has checked it.
+- **Look**: a ruled instrument sheet in graphite and warm white. One accent, vermilion, is kept for
+  the primary action, the open tab, focus and the worst warning; the only other colors are the three
+  bodies (gold, cornflower, bone), picked to stay apart under the common kinds of color blindness.
+  Archivo (variable width and weight) carries the interface, Source Serif 4 the Learn page; both are
+  self-hosted. `src/ui/tokens.css` is the shared palette, mirrored in `src/ui/palette.ts`.
 - **3D**: a reference plane (z = 0, or perpendicular to the angular momentum) with a floor grid and
   optional back walls, drop lines and shadows for height, an axes gizmo, snap views, an orthographic
   option, a co-rotating camera, and trails tinted by height.
@@ -71,7 +85,7 @@ src/
   app/        Controller (the one path for every change), SimLoop (time target and frame budget),
               Comparison, URL state, the batch client, run health and preset suggestions
   render/     Three.js: bodies, trails, planes, gizmo, arrows, the scene
-  ui/         the layout shell, top bar, modules (Tweakpane inside cards), warnings, uPlot charts,
+  ui/         the layout shell, top bar, modules (Tweakpane inside ruled sections), warnings, uPlot charts,
               batch results
   worker/     the batch worker and its protocol
   learn/      the Learn page, from markdown in learn/content

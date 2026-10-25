@@ -50,17 +50,21 @@ export interface PreflightInput {
   dt: number;
   /** T_char. */
   period: number;
+  /** The preset is unbound on purpose (a flyby): not worth a warning. */
+  expectUnbound?: boolean;
 }
 
 /** What is wrong with a system before it runs: unbound, bodies on top of each other, a step too big for it. */
-export function preflight({ state, integrator, dt, period }: PreflightInput): Issue[] {
+export function preflight({ state, integrator, dt, period, expectUnbound = false }: PreflightInput): Issue[] {
   const issues: Issue[] = [];
   const d = createDiagnostics();
   measure(state, d);
   const massive = [...state.m].filter((m) => m > 0).length;
   const size = systemSize(state);
 
-  if (massive >= 2 && d.energy >= 0) {
+  if (expectUnbound) {
+    // The preset is a flyby: being unbound is its point.
+  } else if (massive >= 2 && d.energy >= 0) {
     issues.push({
       id: 'unbound',
       severity: 'warning',
@@ -117,8 +121,8 @@ export function preflight({ state, integrator, dt, period }: PreflightInput): Is
  * pair that does orbit (a planet and its moon) is a binary, and fine.
  */
 function plungingPair(s: SystemState, radius: number): boolean {
-  for (let i = 0; i < 3; i++) {
-    for (let j = i + 1; j < 3; j++) {
+  for (let i = 0; i < s.n; i++) {
+    for (let j = i + 1; j < s.n; j++) {
       const mu = s.G * (s.m[i] + s.m[j]);
       if (!(mu > 0)) continue;
       const r = [0, 1, 2].map((c) => s.x[3 * j + c] - s.x[3 * i + c]);
@@ -146,7 +150,7 @@ export interface RuntimeInput {
   failure: string | null;
   warning: string | null;
   energyError: number;
-  /** Per body: unbound and beyond the escape radius. */
+  /** Per body (two or three): unbound and beyond the escape radius. */
   escaped: boolean[];
   /** Per body: farther than FAR_SIZES starting sizes from the center of mass. */
   far: boolean[];
@@ -219,8 +223,20 @@ export function runtimeIssues(input: RuntimeInput): Issue[] {
     });
   }
 
-  for (let k = 0; k < 3; k++) {
-    if (input.escaped[k]) {
+  for (let k = 0; k < input.escaped.length; k++) {
+    if (input.escaped[k] && input.escaped.length === 2) {
+      // Both bodies of a pair escape together: say it once.
+      if (k === 0) {
+        issues.push({
+          id: 'escaped-pair',
+          severity: 'info',
+          title: 'The two bodies are leaving each other',
+          detail: 'They are moving apart fast enough that gravity can never pull them back: a hyperbolic flyby, the one two-body motion that does not repeat.',
+          learn: 'three-body-problem',
+          fixes: ['frame', 'reset', ...(input.custom ? (['suggested'] as Fix[]) : [])],
+        });
+      }
+    } else if (input.escaped[k]) {
       issues.push({
         id: `escaped-${k}`,
         severity: 'info',

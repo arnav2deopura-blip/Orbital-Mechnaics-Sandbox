@@ -8,14 +8,14 @@ import { learnLink, paneIn, setTitle } from './common';
 // view.settings directly, which SceneView reads every frame; only changes that need work (a new
 // trail length) call into the view.
 
-const FOCUS_OPTIONS: Record<string, CameraMode> = {
+const focusOptions = (n: number): Record<string, CameraMode> => ({
   'Free orbit': 'free',
   'Center of mass': 'com',
   'Co-rotating (about z)': 'corotating',
   'Body 1': 'body0',
   'Body 2': 'body1',
-  'Body 3': 'body2',
-};
+  ...(n === 3 && { 'Body 3': 'body2' as CameraMode }),
+});
 
 const PLANE_OPTIONS: Record<string, PlaneMode> = {
   'z = 0': 'xy',
@@ -36,12 +36,16 @@ export function viewModule(controller: Controller, view: SceneView): ModuleSpec 
     summary: 'Camera, grid, drop lines, arrows and trails',
     shownByDefault: true,
     collapsedByDefault: true,
+    perBody: true,
     build(body) {
       const settings = view.settings;
       const pane = paneIn(body);
+      const n = controller.sim.state.n;
+      // Two bodies have no third to follow.
+      if (n === 2 && settings.cameraMode === 'body2') settings.cameraMode = 'com';
 
       const camera = pane.addFolder({ title: 'Camera' });
-      camera.addBinding(settings, 'cameraMode', { label: 'focus', options: FOCUS_OPTIONS });
+      camera.addBinding(settings, 'cameraMode', { label: 'focus', options: focusOptions(n) });
       const frame = camera.addButton({ title: 'Frame all bodies' });
       frame.on('click', () => view.frameAll(controller.sim.state));
       setTitle(frame, 'Follow the center of mass and pull back until every body is in view.');
@@ -68,7 +72,7 @@ export function viewModule(controller: Controller, view: SceneView): ModuleSpec 
         space.addBinding(settings, 'showVelocity', { label: 'velocity arrows' }),
         'Arrow lengths are logarithmic: a body ten times faster than the typical one is not drawn ten times as long.',
       );
-      setTitle(space.addBinding(settings, 'showAcceleration', { label: 'accel. arrows' }), 'The pull on each body from the other two. Logarithmic lengths, like the velocity arrows.');
+      setTitle(space.addBinding(settings, 'showAcceleration', { label: 'accel. arrows' }), n === 2 ? 'The pull of each body on the other. Logarithmic lengths, like the velocity arrows.' : 'The pull on each body from the other two. Logarithmic lengths, like the velocity arrows.');
 
       const trails = pane.addFolder({ title: 'Trails', expanded: false });
       trails.addBinding(settings, 'showTrails', { label: 'show' });

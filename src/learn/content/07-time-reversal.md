@@ -13,4 +13,4 @@ Even leapfrog fails after a long time in a chaotic system, because the tiny roun
 A method is time-reversible if applying a step of size $dt$ and then one of size $-dt$ returns the starting state exactly. Leapfrog has this property in exact arithmetic; floating-point addition is not associative, so on a computer it holds to about $10^{-16}$ relative. In a system with a Lyapunov exponent $\lambda$, that roundoff grows as $e^{\lambda t}$, so the time after which reversal fails is about $\lambda^{-1}\ln(1/10^{-16})$.
 :::
 
-[Try it: leapfrog on a Kepler orbit; run it, then press Return to start](index.html#preset=kepler&integrator=leapfrog&dt=0.01&speed=2)
+[Try it: leapfrog on a Kepler orbit; run it, then press Return to start](index.html#preset=kepler-orbit&integrator=leapfrog&dt=0.01&speed=2)

@@ -134,7 +134,7 @@ function welcomeCard(prefs: Prefs): HTMLElement {
   card.setAttribute('aria-label', 'Welcome');
   card.innerHTML =
     '<strong>New here?</strong>' +
-    '<p>This sandbox runs three bodies under gravity with five different numerical methods, and shows where each one goes wrong. ' +
+    '<p>This sandbox runs two or three bodies under gravity with five different numerical methods, and shows where each one goes wrong. ' +
     'The Learn page explains it all in plain language, with links that open each idea right here.</p>';
   const actions = el('div', 'banner-actions');
   const learn = el('a', 'banner-button primary');

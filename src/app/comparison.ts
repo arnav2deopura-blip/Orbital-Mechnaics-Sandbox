@@ -68,7 +68,7 @@ export class Comparison {
     const a = sameTime ? source.state.x : drawn.x;
     const b = sameTime ? this.sim.state.x : drawnTwin.x;
     let worst = 0;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < source.state.n; i++) {
       worst = Math.max(worst, Math.hypot(a[3 * i] - b[3 * i], a[3 * i + 1] - b[3 * i + 1], a[3 * i + 2] - b[3 * i + 2]));
     }
     this.divergence = worst;

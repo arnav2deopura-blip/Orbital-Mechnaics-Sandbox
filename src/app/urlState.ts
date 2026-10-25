@@ -267,11 +267,17 @@ export function applyState(controller: Controller, view: ShareView, state: Share
   if (state.G !== undefined) controller.setG(state.G);
   if (state.softening !== undefined) controller.setSoftening(state.softening);
   if (state.bodies) {
-    const next = createState(sim.state.G, sim.state.eps2);
+    const next = createState(sim.state.G, sim.state.eps2, sim.state.n);
     next.t = state.bodies.t;
     next.m.set(state.bodies.m);
     next.x.set(state.bodies.x);
     next.v.set(state.bodies.v);
+    if (next.n === 2) {
+      // Slot 2 does not exist in a pair, whatever a hand-written link puts there.
+      next.m[2] = 0;
+      next.x.fill(0, 6);
+      next.v.fill(0, 6);
+    }
     controller.edit(next, false);
   }
   if (state.speed !== undefined) controller.setSpeed(state.speed);

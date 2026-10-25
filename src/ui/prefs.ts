@@ -13,14 +13,16 @@ export interface Prefs {
   dockHidden: boolean;
   charts: boolean;
   welcomed: boolean;
+  /** The preset last used with two bodies and with three, by id. */
+  lastPresets: Partial<Record<'2' | '3', string>>;
 }
 
 const KEY = 'three-body-sandbox.layout.v1';
 
-export const DEFAULT_DOCK_WIDTH = 340;
+export const DEFAULT_DOCK_WIDTH = 380;
 
 export function defaultPrefs(): Prefs {
-  return { modules: {}, dockWidth: DEFAULT_DOCK_WIDTH, dockHidden: false, charts: true, welcomed: false };
+  return { modules: {}, dockWidth: DEFAULT_DOCK_WIDTH, dockHidden: false, charts: true, welcomed: false, lastPresets: {} };
 }
 
 export function loadPrefs(): Prefs {
@@ -34,6 +36,10 @@ export function loadPrefs(): Prefs {
     if (typeof saved.dockHidden === 'boolean') prefs.dockHidden = saved.dockHidden;
     if (typeof saved.charts === 'boolean') prefs.charts = saved.charts;
     if (typeof saved.welcomed === 'boolean') prefs.welcomed = saved.welcomed;
+    for (const key of ['2', '3'] as const) {
+      const id = saved.lastPresets?.[key];
+      if (typeof id === 'string') prefs.lastPresets[key] = id;
+    }
   } catch {
     // unreadable: keep the defaults
   }

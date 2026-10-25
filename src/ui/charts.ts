@@ -2,6 +2,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { SERIES } from '../sim/sampler';
 import type { Sampler, SeriesKey, SeriesSpec } from '../sim/sampler';
+import { decadeSplits } from './axes';
+import { ACCENT, INK, INK_2, INK_3, RULE, RULE_STRONG } from './palette';
 
 // The diagnostic charts (plan §6): one small uPlot per series in a drawer under the view, drawn
 // from a Sampler, with a toggle per chart in the drawer's header. Redrawn only when the sampler's
@@ -10,18 +12,6 @@ import type { Sampler, SeriesKey, SeriesSpec } from '../sim/sampler';
 const CHART_HEIGHT = 120;
 /** A log axis cannot show zero: an error that is exactly zero is drawn here. */
 const FLOOR = 1e-18;
-
-const COLORS: Record<SeriesKey, string> = {
-  energyError: '#ffd166',
-  angularMomentumError: '#06d6a0',
-  momentumError: '#4cc9f0',
-  comDrift: '#b197fc',
-  minSeparation: '#ff8787',
-  dt: '#74c0fc',
-  forceEvals: '#adb5bd',
-  analyticError: '#f783ac',
-  divergence: '#ffa94d',
-};
 
 /** Which charts are open at the start. The analytic error appears by itself when there is one. */
 const SHOWN_AT_START: SeriesKey[] = ['energyError', 'angularMomentumError', 'minSeparation', 'dt', 'analyticError', 'divergence'];
@@ -72,6 +62,7 @@ export function downloadText(filename: string, text: string, type = 'text/csv'):
 interface Cell {
   spec: SeriesSpec;
   root: HTMLDivElement;
+  label: HTMLDivElement;
   caption: HTMLDivElement | null;
   plot: uPlot;
   /** y values for the plot: clamped copies, since a log axis cannot take zero. */
@@ -112,6 +103,22 @@ export class Charts {
     this.cells = SERIES.map((spec) => this.makeCell(spec));
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(dock);
+  }
+
+  /** Words for a system of two bodies or three: with two there is one distance, and the exact orbit is always there. */
+  setBodyCount(n: number): void {
+    const pair = n === 2;
+    const names: Partial<Record<SeriesKey, [string, string]>> = {
+      minSeparation: pair ? ['Separation', 'Distance between the two bodies'] : [CHIP_LABELS.minSeparation, SERIES_BY_KEY.minSeparation.label],
+    };
+    for (const [key, [chip, label]] of Object.entries(names) as [SeriesKey, [string, string]][]) {
+      const button = this.chips.get(key);
+      if (button) button.textContent = chip;
+      for (const cell of this.cells) if (cell.spec.key === key) cell.label.textContent = label;
+    }
+    const hint = pair ? 'The pair has a closed-form orbit, so this is measured against it exactly.' : SERIES_BY_KEY.analyticError.hint + ' (Only has data in some runs.)';
+    this.chips.get('analyticError')?.setAttribute('title', hint);
+    for (const cell of this.cells) if (cell.spec.key === 'analyticError') cell.label.title = hint;
   }
 
   /** Redraws what changed. Call about ten times a second. */
@@ -167,7 +174,6 @@ export class Charts {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'chip';
-      chip.style.setProperty('--chip-color', COLORS[spec.key]);
       chip.textContent = CHIP_LABELS[spec.key];
       chip.title = NEEDS_DATA.includes(spec.key) ? `${spec.hint} (Only has data in some runs.)` : spec.hint;
       chip.addEventListener('click', () => {
@@ -221,10 +227,10 @@ export class Charts {
     this.dock.appendChild(root);
 
     const axis = {
-      stroke: '#6c7a93',
-      grid: { stroke: '#1d2433', width: 1 },
-      ticks: { stroke: '#2b3a55', width: 1 },
-      font: '10px ui-monospace, monospace',
+      stroke: INK_3,
+      grid: { stroke: RULE, width: 1 },
+      ticks: { stroke: RULE_STRONG, width: 1 },
+      font: '10.5px "Archivo Variable", system-ui, sans-serif',
     };
     const plot = new uPlot(
       {
@@ -239,21 +245,22 @@ export class Charts {
           {
             ...axis,
             size: 54,
+            ...(spec.log && { splits: decadeSplits(4) }),
             // uPlot passes null for ticks it has thinned out.
             values: (_u, ticks) => ticks.map((v) => (v == null ? '' : spec.log ? v.toExponential(0) : formatLinear(v))),
           },
         ],
         series: [
           {},
-          { stroke: COLORS[spec.key], width: 1.5, points: { show: false } },
-          { stroke: COLORS[spec.key], width: 1.2, dash: [5, 4], show: false, points: { show: false } },
+          { stroke: INK, width: 1.4, points: { show: false } },
+          { stroke: INK_2, width: 1.2, dash: [5, 4], show: false, points: { show: false } },
         ],
         hooks: { draw: [(u) => this.drawMarkers(u)] },
       },
       [[], [], []],
       holder,
     );
-    return { spec, root, caption, plot, y: new Float64Array(0), y2: new Float64Array(0) };
+    return { spec, root, label, caption, plot, y: new Float64Array(0), y2: new Float64Array(0) };
   }
 
   private resize(): void {
@@ -309,8 +316,8 @@ export class Charts {
     ctx.beginPath();
     ctx.rect(left, top, width, height);
     ctx.clip();
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.strokeStyle = 'rgba(255,90,54,0.55)';
+    ctx.fillStyle = ACCENT;
     ctx.setLineDash([4, 4]);
     ctx.font = `${10 * devicePixelRatio}px ui-monospace, monospace`;
     for (const marker of markers) {
@@ -329,6 +336,8 @@ export class Charts {
     ctx.restore();
   }
 }
+
+const SERIES_BY_KEY = Object.fromEntries(SERIES.map((spec) => [spec.key, spec])) as Record<SeriesKey, SeriesSpec>;
 
 const CHIP_LABELS: Record<SeriesKey, string> = {
   energyError: 'Energy',

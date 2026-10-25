@@ -7,7 +7,7 @@ const MARGIN = 12;
 /** Where the label sits along its axis, past the tip. */
 const LABEL_REACH = 1.25;
 
-const AXIS_COLORS = [0xff6b6b, 0x69db7c, 0x74c0fc];
+const AXIS_COLORS = [0xe5675c, 0x7fbf7b, 0x6aa6ff];
 const PLAIN_LABELS = ['x', 'y', 'z'];
 const ANGULAR_LABELS = ['u', 'v', 'L'];
 

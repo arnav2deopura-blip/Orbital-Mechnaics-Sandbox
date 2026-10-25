@@ -1,11 +1,11 @@
 import type { IntegratorId } from '../sim/integrators/types';
 import { createState } from '../sim/state';
-import type { SystemState } from '../sim/types';
+import type { BodyCount, SystemState } from '../sim/types';
 
 // Preset schema (plan §8.1). A preset is either tabulated (`bodies`) or parametric (`generator`
 // with `params`, exposed as sliders).
 
-export type PresetTag = 'stable' | 'periodic' | 'unstable' | 'chaotic' | 'hierarchical' | '3D' | 'validation';
+export type PresetTag = 'stable' | 'periodic' | 'unstable' | 'chaotic' | 'hierarchical' | '3D' | 'validation' | 'unbound';
 
 export interface PresetBody {
   name: string;
@@ -47,8 +47,10 @@ export interface Preset {
   /** One-line teaching goal. */
   demonstrates: string;
   units: 'nbody' | 'astro';
+  /** Two bodies, or three (the default). The menu shows the presets of the count that is chosen. */
+  bodyCount?: BodyCount;
   G: number;
-  /** Exactly three. */
+  /** Exactly `bodyCount` of them. */
   bodies?: PresetBody[];
   generator?: (params: ParamValues) => Generated;
   params?: ParamSpec[];
@@ -61,7 +63,7 @@ export interface Preset {
     /** Sim time units per real second. Default: one T_char every 8 s. */
     speed?: number;
     duration?: number;
-    /** WH only: the body the others orbit. */
+    /** WH only: the body the others orbit (0 or 1 with two bodies). */
     centralBody?: 0 | 1 | 2;
     /** What the camera follows, and how big the picture should be (default: the size of the system). */
     camera?: { focus: FocusBody; size?: number };
@@ -85,6 +87,11 @@ export interface Instance {
   params: ParamValues;
 }
 
+/** How many bodies the preset has. */
+export function bodyCountOf(preset: Preset): BodyCount {
+  return preset.bodyCount ?? 3;
+}
+
 /** The defaults of the preset's sliders, overlaid with `overrides`. */
 export function resolveParams(preset: Preset, overrides: ParamValues = {}): ParamValues {
   const out: ParamValues = {};
@@ -105,8 +112,9 @@ export function instantiate(preset: Preset, overrides: ParamValues = {}): Instan
     dt = generated.dt;
     size = generated.size;
   }
-  if (!bodies || bodies.length !== 3) throw new RangeError(`Preset ${preset.id} needs exactly 3 bodies`);
-  const state = createState(preset.G);
+  const count = bodyCountOf(preset);
+  if (!bodies || bodies.length !== count) throw new RangeError(`Preset ${preset.id} needs exactly ${count} bodies`);
+  const state = createState(preset.G, 0, count);
   bodies.forEach((body, i) => {
     state.m[i] = body.m;
     state.x.set(body.x, 3 * i);

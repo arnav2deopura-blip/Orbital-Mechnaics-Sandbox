@@ -32,7 +32,7 @@ export function systemModule(controller: Controller, view: SceneView): ModuleSpe
         shown = preset;
         name.textContent = preset.name;
         about.textContent = preset.demonstrates;
-        checked.textContent = preset.verified ? `✓ Checked by a test: ${preset.verifiedBy ?? 'behaves as described'}.` : 'Not independently checked.';
+        checked.textContent = preset.verified ? `Checked by a test: ${preset.verifiedBy ?? 'behaves as described'}.` : 'Not independently checked.';
         checked.classList.toggle('verified', preset.verified);
         learn.href = `learn.html#preset-${preset.id}`;
         for (const slider of sliders) slider.dispose();

@@ -1,4 +1,4 @@
-import type { CostCounters, SystemState } from './types';
+import type { BodyCount, CostCounters, SystemState } from './types';
 
 export const NUM_BODIES = 3;
 export const DIM = 3;
@@ -9,8 +9,9 @@ export const STATE_LEN = NUM_BODIES * DIM;
 // never inside step() or computeAccel() (allocation rule, plan §3).
 
 /** A zeroed state at t = 0. */
-export function createState(G = 1, eps2 = 0): SystemState {
+export function createState(G = 1, eps2 = 0, n: BodyCount = 3): SystemState {
   return {
+    n,
     t: 0,
     m: new Float64Array(NUM_BODIES),
     x: new Float64Array(STATE_LEN),
@@ -26,13 +27,14 @@ export function createCounters(): CostCounters {
 
 /** Independent deep copy of s. */
 export function snapshot(s: SystemState): SystemState {
-  const out = createState(s.G, s.eps2);
+  const out = createState(s.G, s.eps2, s.n);
   copyState(s, out);
   return out;
 }
 
 /** Copies src into dst in place and allocates nothing, so it is safe in the step loop (e.g. prev <- state). */
 export function copyState(src: SystemState, dst: SystemState): void {
+  dst.n = src.n;
   dst.t = src.t;
   dst.m.set(src.m);
   dst.x.set(src.x);

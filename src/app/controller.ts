@@ -1,6 +1,6 @@
-import { findPreset } from '../presets';
+import { DEFAULT_PRESET_ID, findPreset } from '../presets';
 import { routhRatio } from '../presets/generators';
-import { instantiate } from '../presets/schema';
+import { bodyCountOf, instantiate } from '../presets/schema';
 import type { ParamValues, Preset } from '../presets/schema';
 import { angularMomentumError, characteristicTime, energyError, momentumError, systemSize } from '../sim/diagnostics';
 import { hasEscaped } from '../sim/events';
@@ -10,7 +10,7 @@ import { Simulation } from '../sim/simulation';
 import { copyState, snapshot } from '../sim/state';
 import { nudge as nudgeState, rotateState, scaleToBound } from '../sim/transforms';
 import type { Axis, Nudge } from '../sim/transforms';
-import type { SystemState } from '../sim/types';
+import type { BodyCount, SystemState } from '../sim/types';
 import type { CameraMode } from '../render/scene';
 import { Comparison } from './comparison';
 import type { ComparisonOptions } from './comparison';
@@ -102,6 +102,10 @@ export class Controller {
     returnDistance: NaN,
     status: '',
   };
+  /** The preset last loaded with two bodies, and with three: where switching the body count goes back to. */
+  readonly lastPreset: Record<BodyCount, string> = { ...DEFAULT_PRESET_ID };
+  private lastCount: BodyCount = 3;
+  private readonly bodyCountListeners: (() => void)[] = [];
   /** The preset last loaded, and the values of its parameters. The panel's sliders edit `params`; applyParams() reloads. */
   preset: Preset;
   readonly params: ParamValues = {};
@@ -148,6 +152,27 @@ export class Controller {
     this.loadPreset(preset, options);
   }
 
+  /** How many bodies the system has now: 2 or 3. */
+  get bodyCount(): BodyCount {
+    return this.sim.state.n;
+  }
+
+  /** Called after a load that changed the number of bodies, once everything is consistent again. */
+  onBodyCountChange(listener: () => void): void {
+    this.bodyCountListeners.push(listener);
+  }
+
+  /**
+   * Switches between a pair and a triple: loads the preset of that kind last used (or the default
+   * one). The two are different systems, so a switch is a new run, not an edit of the old one.
+   */
+  setBodyCount(count: BodyCount): void {
+    if (count === this.sim.state.n) return;
+    const remembered = findPreset(this.lastPreset[count]);
+    const preset = remembered && bodyCountOf(remembered) === count ? remembered : findPreset(DEFAULT_PRESET_ID[count]);
+    if (preset) this.loadPreset(preset);
+  }
+
   /** Hands the frame loop to the view. */
   start(): void {
     this.view.start((dt) => this.frame(dt));
@@ -165,7 +190,7 @@ export class Controller {
     const instance = instantiate(preset, params);
     const initial = instance.state;
     if (offset !== 0) {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < initial.n; i++) {
         initial.x[3 * i] += offset;
         initial.x[3 * i + 1] += offset * 0.5;
         initial.x[3 * i + 2] += offset * 0.25;
@@ -198,6 +223,11 @@ export class Controller {
     this.readDraft();
     this.restartHistory();
     this.newRun();
+    this.lastPreset[sim.state.n] = preset.id;
+    if (sim.state.n !== this.lastCount) {
+      this.lastCount = sim.state.n;
+      for (const listener of this.bodyCountListeners) listener();
+    }
   }
 
   /** Reloads the current preset with the values now in `params`: the sliders' apply. */
@@ -270,7 +300,7 @@ export class Controller {
   /** Applies the body editor's buffer: masses, positions and velocities, z included. Pauses. */
   applyDraft(recenter = true): void {
     const next = snapshot(this.sim.state);
-    this.draft.forEach((body, i) => {
+    this.draft.slice(0, next.n).forEach((body, i) => {
       next.m[i] = Math.max(0, body.m);
       next.x.set([body.pos.x, body.pos.y, body.pos.z], 3 * i);
       next.v.set([body.vel.x, body.vel.y, body.vel.z], 3 * i);
@@ -451,7 +481,7 @@ export class Controller {
     readout.angularMomentumError = angularMomentumError(d, sim.reference);
     readout.momentumError = momentumError(d, sim.reference);
     readout.minSeparation = d.minSeparation;
-    readout.routh = routhRatio(sim.state.m[0], sim.state.m[1], sim.state.m[2]);
+    readout.routh = sim.state.n === 2 ? NaN : routhRatio(sim.state.m[0], sim.state.m[1], sim.state.m[2]);
     readout.dt = sim.currentDt();
     readout.steps = sim.counters.stepCount;
     readout.forceEvals = sim.counters.forceEvals;
@@ -467,7 +497,7 @@ export class Controller {
 
   /** The preset closest to the starting state, or null when the run is a preset's own (it is already the right one). */
   suggestion(): Suggestion | null {
-    if (!this.custom && this.preset.id !== 'sandbox') return null;
+    if (!this.custom && !this.preset.id.startsWith('sandbox')) return null;
     const suggestion = suggestPreset(this.sim.baselineSnapshot());
     return suggestion.presetId === this.preset.id && !this.custom ? null : suggestion;
   }
@@ -521,14 +551,15 @@ export class Controller {
   /** The checks on the starting state, which depend on the method and step too. */
   private checkStart(): void {
     const { sim } = this;
-    this.preflightIssues = preflight({ state: sim.baselineSnapshot(), integrator: sim.integrator.id, dt: sim.params.dt, period: sim.reference.period });
+    this.preflightIssues = preflight({ state: sim.baselineSnapshot(), integrator: sim.integrator.id, dt: sim.params.dt, period: sim.reference.period, expectUnbound: this.preset.tags.includes('unbound') });
   }
 
   private checkHealth(): void {
     const { sim, readout } = this;
     const escape = ESCAPE_SIZES * sim.reference.size;
     const d = sim.refreshDiagnostics();
-    const far = [0, 1, 2].map(
+    const bodies = [0, 1, 2].slice(0, sim.state.n);
+    const far = bodies.map(
       (k) => Math.hypot(sim.state.x[3 * k] - d.com[0], sim.state.x[3 * k + 1] - d.com[1], sim.state.x[3 * k + 2] - d.com[2]) > FAR_SIZES * sim.reference.size,
     );
     const running = runtimeIssues({
@@ -537,7 +568,7 @@ export class Controller {
       failure: sim.failure,
       warning: sim.warning,
       energyError: readout.energyError,
-      escaped: [0, 1, 2].map((k) => hasEscaped(sim.state, k, escape)),
+      escaped: bodies.map((k) => hasEscaped(sim.state, k, escape)),
       far,
       custom: this.custom,
     });
@@ -562,8 +593,12 @@ export class Controller {
     }
     if (sim.encounter !== null) status += `; ${sim.encounter}`;
     if (sim.warning !== null) status += `; ${sim.warning}`;
-    for (let k = 0; k < 3; k++) {
-      if (hasEscaped(sim.state, k, ESCAPE_SIZES * sim.reference.size)) status += `; body ${k + 1} has escaped`;
+    if (sim.state.n === 2) {
+      if (hasEscaped(sim.state, 0, ESCAPE_SIZES * sim.reference.size)) status += '; the bodies are leaving each other';
+    } else {
+      for (let k = 0; k < 3; k++) {
+        if (hasEscaped(sim.state, k, ESCAPE_SIZES * sim.reference.size)) status += `; body ${k + 1} has escaped`;
+      }
     }
     return status;
   }

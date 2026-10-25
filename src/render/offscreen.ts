@@ -30,9 +30,13 @@ export class OffscreenMarkers {
    * Places the arrows for positions x (world) seen from `camera`, with the render origin at o.
    * width and height are the canvas size in CSS pixels.
    */
-  update(x: Float64Array, o: Float64Array, camera: THREE.Camera, width: number, height: number): void {
+  update(x: Float64Array, o: Float64Array, camera: THREE.Camera, width: number, height: number, bodies = 3): void {
     const p = this.point;
     for (let i = 0; i < 3; i++) {
+      if (i >= bodies) {
+        this.show(i, false);
+        continue;
+      }
       p.set(x[3 * i] - o[0], x[3 * i + 1] - o[1], x[3 * i + 2] - o[2]).project(camera);
       // project() mirrors points behind the camera through the center: flip them back so the arrow points the right way.
       const behind = p.z > 1;

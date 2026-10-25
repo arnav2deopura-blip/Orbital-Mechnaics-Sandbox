@@ -1,6 +1,8 @@
 import type { Controller } from '../app/controller';
-import { findPreset, PRESETS } from '../presets';
+import { findPreset, presetsFor } from '../presets';
+import { bodyCountOf } from '../presets/schema';
 import type { Preset } from '../presets/schema';
+import type { BodyCount } from '../sim/types';
 import type { Charts } from './charts';
 import { INTEGRATOR_OPTIONS } from './modules/common';
 import { chooseIntegrator, integratorChoice } from './modules/method';
@@ -22,7 +24,8 @@ const ICONS = {
 
 /** Menu groups for the presets: the classics, the hierarchical systems, the Šuvakov family, and the sandbox. */
 function presetGroup(preset: Preset): string {
-  if (preset.id === 'sandbox') return 'Your own';
+  if (preset.id.startsWith('sandbox')) return 'Your own';
+  if (bodyCountOf(preset) === 2) return 'The Kepler problem';
   if (preset.id.startsWith('suvakov-')) return 'Šuvakov–Dmitrašinović orbits';
   if (preset.tags.includes('hierarchical')) return 'Hierarchical systems';
   return 'Classics';
@@ -54,23 +57,51 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
   brand.href = 'index.html';
   brand.innerHTML = '<span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="brand-name">Three-body sandbox</span>';
 
-  // ---- preset ----------------------------------------------------------------------------
-  const preset = el('select', 'bar-select preset-select');
-  const groups = new Map<string, HTMLOptGroupElement>();
-  for (const p of PRESETS) {
-    const name = presetGroup(p);
-    let group = groups.get(name);
-    if (!group) {
-      group = el('optgroup');
-      group.label = name;
-      groups.set(name, group);
-    }
-    const option = el('option');
-    option.value = p.id;
-    option.textContent = p.name;
-    group.appendChild(option);
+  // ---- bodies: two or three ---------------------------------------------------------------
+  const bodies = el('div', 'segmented');
+  bodies.setAttribute('role', 'radiogroup');
+  bodies.setAttribute('aria-label', 'Number of bodies');
+  const segments = new Map<BodyCount, HTMLButtonElement>();
+  for (const count of [2, 3] as const) {
+    const segment = el('button', 'segment');
+    segment.type = 'button';
+    segment.setAttribute('role', 'radio');
+    segment.textContent = String(count);
+    segment.title = count === 2 ? 'Two bodies: the Kepler problem, solved exactly' : 'Three bodies: no general solution, and chaos';
+    segment.addEventListener('click', () => controller.setBodyCount(count));
+    segment.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      const other = count === 2 ? 3 : 2;
+      controller.setBodyCount(other);
+      segments.get(other)?.focus();
+    });
+    segments.set(count, segment);
+    bodies.appendChild(segment);
   }
-  preset.append(...groups.values());
+
+  // ---- preset ----------------------------------------------------------------------------
+  // Only the presets with this many bodies: the switch above decides which.
+  const preset = el('select', 'bar-select preset-select');
+  const fillPresets = (count: BodyCount): void => {
+    const groups = new Map<string, HTMLOptGroupElement>();
+    for (const p of presetsFor(count)) {
+      const name = presetGroup(p);
+      let group = groups.get(name);
+      if (!group) {
+        group = el('optgroup');
+        group.label = name;
+        groups.set(name, group);
+      }
+      const option = el('option');
+      option.value = p.id;
+      option.textContent = p.name;
+      group.appendChild(option);
+    }
+    preset.replaceChildren(...groups.values());
+  };
+  let shownCount: BodyCount = controller.bodyCount;
+  fillPresets(shownCount);
   preset.addEventListener('change', () => {
     const chosen = findPreset(preset.value);
     if (chosen && chosen !== controller.preset) controller.loadPreset(chosen);
@@ -126,10 +157,15 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
   const hud = el('div', 'hud');
   const clock = el('div', 'bar-clock');
   clock.title = 'Simulated time, and how many periods (T_char) that is';
+  const clockTime = el('span', 'clock-time');
+  const clockUnit = el('span', 'clock-unit');
+  clock.append(clockTime, clockUnit);
   const status = el('div', 'status-pill');
   status.setAttribute('role', 'status');
   hud.append(status, clock);
-  shell.viewport.appendChild(hud);
+  // The plate's caption, as a figure in a journal has one: what is drawn and how it was computed.
+  const caption = el('p', 'plate-caption');
+  shell.viewport.append(hud, caption);
 
   // ---- switches --------------------------------------------------------------------------
   const chartsToggle = button('bar-button toggle', `${ICONS.charts}<span>Charts</span>`, 'Show charts', 'Show or hide the charts under the view (C)');
@@ -154,7 +190,14 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
   switches.append(chartsToggle, menuHost, learn);
 
   const main = el('div', 'bar-main');
-  main.append(labelled('Preset', preset), transport, speedLabel, labelled('Method', method));
+  // Not a <label>: a click on its caption would press the first segment.
+  const bodiesField = el('div', 'bar-field bodies-field');
+  const bodiesCaption = el('span', 'bar-caption');
+  bodiesCaption.id = 'bodies-caption';
+  bodiesCaption.textContent = 'Bodies';
+  bodies.setAttribute('aria-labelledby', bodiesCaption.id);
+  bodiesField.append(bodiesCaption, bodies);
+  main.append(bodiesField, labelled('Preset', preset), transport, speedLabel, labelled('Method', method));
   bar.append(brand, main, switches);
 
   // Space plays and pauses, C shows the charts: not while typing in a field.
@@ -172,6 +215,16 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
 
   let shownRunning: boolean | null = null;
   function refresh(): void {
+    if (controller.bodyCount !== shownCount) {
+      shownCount = controller.bodyCount;
+      fillPresets(shownCount);
+    }
+    for (const [count, segment] of segments) {
+      const on = count === shownCount;
+      segment.setAttribute('aria-checked', String(on));
+      segment.tabIndex = on ? 0 : -1;
+      segment.classList.toggle('on', on);
+    }
     if (preset.value !== controller.preset.id) preset.value = controller.preset.id;
     const choice = integratorChoice(controller);
     if (method.value !== choice) method.value = choice;
@@ -188,7 +241,10 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
       speedValue.textContent = formatSpeed(exponent);
     }
     const t = sim.state.t;
-    clock.textContent = `t = ${formatTime(t)} · ${(t / sim.reference.period).toFixed(1)} T`;
+    clockTime.textContent = formatTime(t);
+    clockUnit.textContent = `t · ${(t / sim.reference.period).toFixed(1)} T`;
+    const text = captionText(controller);
+    if (caption.textContent !== text) caption.textContent = text;
 
     const worst = controller.issues[0]?.severity;
     const failed = sim.failure !== null;
@@ -216,7 +272,7 @@ function buildModulesMenu(shell: Shell, opener: HTMLButtonElement): HTMLElement 
   const panelBox = el('input');
   panelBox.type = 'checkbox';
   const panelText = el('span');
-  panelText.innerHTML = '<b>Side panel</b><small>Hide it to give the view the whole width</small>';
+  panelText.innerHTML = '<b>Side Panel</b><small>Hide it to give the view the whole width</small>';
   panelToggle.append(panelBox, panelText);
   panelBox.addEventListener('change', () => shell.setDockHidden(!panelBox.checked));
   const foot = el('div', 'menu-foot');
@@ -225,7 +281,7 @@ function buildModulesMenu(shell: Shell, opener: HTMLButtonElement): HTMLElement 
   resetLayout.textContent = 'Reset layout';
   resetLayout.addEventListener('click', () => shell.resetLayout());
   foot.appendChild(resetLayout);
-  menu.append(panelToggle, foot);
+  menu.append(foot);
 
   const boxes = new Map<string, HTMLInputElement>();
   const fill = (): void => {
@@ -245,6 +301,8 @@ function buildModulesMenu(shell: Shell, opener: HTMLButtonElement): HTMLElement 
         list.appendChild(item);
         boxes.set(spec.id, box);
       }
+      // The last cell of the grid: whether the side panel shows at all.
+      list.appendChild(panelToggle);
     }
     for (const [id, box] of boxes) box.checked = shell.isShown(id);
     panelBox.checked = !shell.dockHidden;
@@ -278,6 +336,16 @@ function buildModulesMenu(shell: Shell, opener: HTMLButtonElement): HTMLElement 
     }
   });
   return menu;
+}
+
+/** "Kepler orbit · eccentricity 0.50 · mass ratio 0.30 · IAS15": the figure's caption. */
+function captionText(controller: Controller): string {
+  const { preset, params } = controller;
+  const shown = (preset.params ?? []).filter((spec) => spec.key !== 'tilt').slice(0, 3);
+  const settings = shown.map((spec) => `${spec.label} ${+Number(params[spec.key]).toPrecision(3)}`);
+  const choice = integratorChoice(controller);
+  const method = Object.entries(INTEGRATOR_OPTIONS).find(([, id]) => id === choice)?.[0] ?? choice;
+  return [preset.name, ...settings, method].join(' · ');
 }
 
 function formatSpeed(exponent: number): string {

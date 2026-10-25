@@ -3,11 +3,11 @@ import type { IntegratorId } from '../../sim/integrators/types';
 import { cardFor } from '../infoCards';
 import type { ModuleSpec } from '../shell';
 import { el } from '../shell';
-import { BODY_OPTIONS, INTEGRATOR_OPTIONS, learnLink, paneIn, prose, setTitle, subhead } from './common';
+import { bodyOptions, INTEGRATOR_OPTIONS, learnLink, paneIn, prose, setTitle, subhead } from './common';
 
 // The Method module (plan §7.1): which integrator, what it is (from the Learn page's own text),
 // and the controls that apply to it. Controls for one method only are hidden for the rest.
-// Also "Time & events": direction, return to start and the encounter radius.
+// Also "Time & Events": direction, return to start and the encounter radius.
 
 /** The menu's value for the current integrator: symplectic Euler is its own entry. */
 export function integratorChoice(controller: Controller): string {
@@ -27,6 +27,7 @@ export function methodModule(controller: Controller): ModuleSpec {
     title: 'Method',
     summary: 'The integrator, what it does, and its step size and limits',
     shownByDefault: true,
+    perBody: true,
     build(body) {
       const { sim } = controller;
       const pane = paneIn(body);
@@ -62,7 +63,7 @@ export function methodModule(controller: Controller): ModuleSpec {
           if (value !== this.body) controller.setCentralBody(value < 0 ? undefined : (value as 0 | 1 | 2));
         },
       };
-      const centralBinding = pane.addBinding(central, 'body', { label: 'central body', options: { 'Most massive': -1, ...BODY_OPTIONS } });
+      const centralBinding = pane.addBinding(central, 'body', { label: 'central body', options: { 'Most massive': -1, ...bodyOptions(sim.state.n) } });
       setTitle(centralBinding, 'Wisdom-Holman: the body the others orbit. For a star, planet and moon use the planet.');
 
       // IAS15's limits, as exponents of ten; the end of each slider means "no limit".
@@ -103,6 +104,12 @@ export function methodModule(controller: Controller): ModuleSpec {
       setTitle(dtMinBinding, 'IAS15: the smallest step it may take, in units of T_char. Hitting it is reported as an unresolved encounter.');
       setTitle(dtMaxBinding, 'IAS15: the largest step it may take, in units of T_char.');
 
+      const pairNote = prose(
+        body,
+        'With two bodies Wisdom-Holman is exact: the orbit is the very Kepler motion it drifts along, so the step only decides how often it stops to look.',
+        'module-meta',
+      );
+
       // What the chosen method is, from the same text as the Learn page.
       subhead(body, 'About this method');
       const idea = prose(body);
@@ -120,6 +127,7 @@ export function methodModule(controller: Controller): ModuleSpec {
       return () => {
         const id = sim.integrator.id;
         centralBinding.hidden = id !== 'wh';
+        pairNote.hidden = id !== 'wh' || sim.state.n !== 2;
         for (const binding of [tolBinding, dtMinBinding, dtMaxBinding]) binding.hidden = id !== 'ias15';
         const choice = integratorChoice(controller);
         if (choice !== shownCard) {
@@ -141,7 +149,7 @@ export function methodModule(controller: Controller): ModuleSpec {
 export function timeModule(controller: Controller): ModuleSpec {
   return {
     id: 'time',
-    title: 'Time & events',
+    title: 'Time & Events',
     summary: 'Run backward, return to the start, and stop at close encounters',
     shownByDefault: false,
     build(body) {

@@ -12,4 +12,4 @@ Better integrators look at the pull in more than one place, or choose their step
 All five solve the same first-order system for the state $(\mathbf x,\mathbf v)$: $\dot{\mathbf x}=\mathbf v$ and $\dot{\mathbf v}=\mathbf a(\mathbf x)$. They differ in how they approximate the integral of $\mathbf a$ over one step. The acceleration $\mathbf a$ depends only on positions, which is what makes leapfrog and Wisdom–Holman possible.
 :::
 
-[Try it: Euler on a Kepler orbit, spiraling outward](index.html#preset=kepler&integrator=euler&dt=0.005&speed=1)
+[Try it: Euler on a Kepler orbit, spiraling outward](index.html#preset=kepler-orbit&integrator=euler&dt=0.005&speed=1)

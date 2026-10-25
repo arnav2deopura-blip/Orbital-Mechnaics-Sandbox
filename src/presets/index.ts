@@ -1,17 +1,23 @@
 import suvakov from './data/suvakov.json';
 import { FIGURE_EIGHT } from './figureEight';
 import {
+  circularBinary,
   eulerCollinear,
+  hyperbolicFlyby,
   inclinedTriple,
   kepler,
+  keplerOrbit,
   lagrange,
   sandbox,
+  sandboxPair,
   starPlanetMoon,
   suvakovBodies,
   trojan,
 } from './generators';
 import type { SuvakovOrbit } from './generators';
+import { bodyCountOf } from './schema';
 import type { ParamSpec, Preset } from './schema';
+import type { BodyCount } from '../sim/types';
 
 // The preset list (plan §8.2), in the order the menu shows it.
 
@@ -27,7 +33,7 @@ const tilt = (hint = 'Turns the whole system about the x axis. Nothing physical 
 
 export const KEPLER: Preset = {
   id: 'kepler',
-  name: 'Two-body Kepler',
+  name: 'Kepler pair + test particle',
   tags: ['validation', 'periodic', '3D'],
   demonstrates: 'Checking an integrator against the exact solution, with a massless third body on an inclined orbit.',
   units: 'nbody',
@@ -225,6 +231,99 @@ const SUVAKOV: Preset[] = (suvakov.orbits as (SuvakovOrbit & { published: unknow
     : 'returns to its start after one period to better than 1e-8, and then drifts away from the orbit over many periods',
 }));
 
+// ---- two bodies -----------------------------------------------------------------------------
+// The exactly solvable case: nothing here is chaotic, and every run has a closed form to be
+// judged against. They share the 3-body machinery (state.n = 2), so every method and module works.
+
+const PAIR_MASS_RATIO: ParamSpec = {
+  key: 'massRatio',
+  label: 'mass ratio',
+  min: 0.01,
+  max: 1,
+  step: 0.01,
+  value: 0.3,
+  hint: 'Mass of the secondary over the primary.',
+};
+
+export const KEPLER_ORBIT: Preset = {
+  id: 'kepler-orbit',
+  name: 'Kepler orbit',
+  bodyCount: 2,
+  tags: ['validation', 'periodic'],
+  demonstrates: 'The one gravitational problem with an exact answer: two bodies on an ellipse. Check any integrator against it.',
+  units: 'nbody',
+  G: 1,
+  params: [{ key: 'e', label: 'eccentricity', min: 0, max: 0.95, step: 0.01, value: 0.5 }, PAIR_MASS_RATIO, tilt()],
+  generator: (p) => keplerOrbit({ e: p.e, massRatio: p.massRatio, tilt: p.tilt }),
+  recommended: { integrator: 'ias15' },
+  source: 'Exact two-body solution (Kepler).',
+  verified: true,
+  verifiedBy: 'returns to its start after one period to better than 1e-9, and follows the exact Kepler solution',
+};
+
+export const CIRCULAR_BINARY: Preset = {
+  id: 'circular-binary',
+  name: 'Circular binary',
+  bodyCount: 2,
+  tags: ['validation', 'periodic', 'stable'],
+  demonstrates: 'Two masses on a circle, the simplest closed orbit. Euler spirals outward; leapfrog stays on it.',
+  units: 'nbody',
+  G: 1,
+  params: [{ ...PAIR_MASS_RATIO, value: 1, min: 0.05 }, tilt()],
+  generator: (p) => circularBinary({ massRatio: p.massRatio, tilt: p.tilt }),
+  recommended: { integrator: 'leapfrog' },
+  source: 'Exact two-body solution with e = 0.',
+  verified: true,
+  verifiedBy: 'returns to its start after one period to better than 1e-9, and keeps a constant separation',
+};
+
+export const NEAR_RADIAL: Preset = {
+  id: 'near-radial',
+  name: 'Near-radial plunge',
+  bodyCount: 2,
+  tags: ['validation', 'periodic'],
+  demonstrates: 'A very eccentric orbit: slow at the far point, then a violent pass at pericenter. A fixed step that suits the first fails the second; IAS15 adapts.',
+  units: 'nbody',
+  G: 1,
+  params: [{ key: 'e', label: 'eccentricity', min: 0.9, max: 0.999, step: 0.001, value: 0.99, hint: 'Pericenter is a (1 - e): at 0.99 the bodies pass 100 times closer than they start.' }, PAIR_MASS_RATIO, tilt()],
+  generator: (p) => keplerOrbit({ e: p.e, massRatio: p.massRatio, tilt: p.tilt, from: 'apocenter' }),
+  recommended: { integrator: 'ias15' },
+  source: 'Exact two-body solution (Kepler), started at the far point.',
+  verified: true,
+  verifiedBy: 'returns to its start after one period, through a pericenter pass 100 times closer than the start',
+};
+
+export const HYPERBOLIC_FLYBY: Preset = {
+  id: 'hyperbolic-flyby',
+  name: 'Hyperbolic flyby',
+  bodyCount: 2,
+  tags: ['validation', 'unbound'],
+  demonstrates: 'Two bodies that pass once and never meet again: the one two-body orbit that is not closed. The bend of the path is set by the eccentricity.',
+  units: 'nbody',
+  G: 1,
+  params: [{ key: 'e', label: 'eccentricity', min: 1.05, max: 6, step: 0.01, value: 2, hint: 'Above 1 the orbit is open. Closer to 1 the pass bends more; larger is a gentle deflection.' }, PAIR_MASS_RATIO, tilt()],
+  generator: (p) => hyperbolicFlyby({ e: p.e, massRatio: p.massRatio, tilt: p.tilt }),
+  recommended: { integrator: 'ias15' },
+  source: 'Exact two-body solution (Kepler), the unbound branch.',
+  verified: true,
+  verifiedBy: 'the closest approach is the analytic pericenter distance, and the energy is that of the hyperbola',
+};
+
+export const SANDBOX_PAIR: Preset = {
+  id: 'sandbox-2',
+  name: 'Sandbox (2 bodies)',
+  bodyCount: 2,
+  tags: ['3D'],
+  demonstrates: 'Two bodies to experiment with: change the speed to make a circle, an ellipse or an escape. Edit anything.',
+  units: 'nbody',
+  G: 1,
+  params: [{ key: 'speed', label: 'speed', min: 0.2, max: 1.6, step: 0.01, value: 0.8, hint: 'Sideways speed as a fraction of a circular orbit’s. Below 1 starts at the far point; sqrt 2 (1.41) and above is not bound.' }, { ...tilt(), value: 25 }],
+  generator: (p) => sandboxPair({ speed: p.speed, tilt: p.tilt }),
+  recommended: { integrator: 'ias15' },
+  source: 'Two masses (1 and 0.4) at distance 2.',
+  verified: false, // it makes no claim to check: it is a place to experiment
+};
+
 export const PRESETS: readonly Preset[] = [
   KEPLER,
   FIGURE_EIGHT,
@@ -236,7 +335,20 @@ export const PRESETS: readonly Preset[] = [
   INCLINED_TRIPLE,
   ...SUVAKOV,
   SANDBOX,
+  KEPLER_ORBIT,
+  CIRCULAR_BINARY,
+  NEAR_RADIAL,
+  HYPERBOLIC_FLYBY,
+  SANDBOX_PAIR,
 ];
+
+/** The presets with this many bodies, in menu order. */
+export function presetsFor(count: BodyCount): Preset[] {
+  return PRESETS.filter((preset) => bodyCountOf(preset) === count);
+}
+
+/** Where switching to this many bodies starts, when there is no earlier choice to go back to. */
+export const DEFAULT_PRESET_ID: Record<BodyCount, string> = { 2: 'kepler-orbit', 3: 'figure-eight' };
 
 export function findPreset(id: string): Preset | undefined {
   return PRESETS.find((preset) => preset.id === id);

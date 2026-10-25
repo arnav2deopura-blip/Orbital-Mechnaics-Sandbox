@@ -20,7 +20,7 @@ export function rotateState(s: SystemState, axis: Axis, degrees: number): void {
   const a = axis === 'x' ? 1 : axis === 'y' ? 2 : 0;
   const b = axis === 'x' ? 2 : axis === 'y' ? 0 : 1;
   for (const arr of [s.x, s.v]) {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < s.n; i++) {
       const p = arr[3 * i + a];
       const q = arr[3 * i + b];
       arr[3 * i + a] = c * p - sn * q;
@@ -32,7 +32,7 @@ export function rotateState(s: SystemState, axis: Axis, degrees: number): void {
 export type NudgeDirection = Axis | 'normal' | 'random';
 
 export interface Nudge {
-  /** 0, 1 or 2. */
+  /** 0, 1 or 2 (0 or 1 with two bodies). */
   body: number;
   target: 'position' | 'velocity';
   /** 'normal' is the direction of the total angular momentum (z if it has none): out of the orbital plane. */
@@ -79,7 +79,7 @@ function normalTo(s: SystemState, out: [number, number, number]): void {
   let ly = d.L[1];
   let lz = d.L[2];
   let scale = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < s.n; i++) {
     scale += s.m[i] * Math.hypot(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]) * Math.hypot(s.v[3 * i], s.v[3 * i + 1], s.v[3 * i + 2]);
   }
   if (M > 0) {
@@ -110,16 +110,16 @@ export function scaleToBound(s: SystemState, ratio = 0.5): number {
   const M = s.m[0] + s.m[1] + s.m[2];
   if (!(M > 0)) return 1;
   const com = [0, 0, 0];
-  for (let i = 0; i < 3; i++) for (let c = 0; c < 3; c++) com[c] += (s.m[i] * s.v[3 * i + c]) / M;
+  for (let i = 0; i < s.n; i++) for (let c = 0; c < 3; c++) com[c] += (s.m[i] * s.v[3 * i + c]) / M;
   let kinetic = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < s.n; i++) {
     for (let c = 0; c < 3; c++) kinetic += 0.5 * s.m[i] * (s.v[3 * i + c] - com[c]) ** 2;
   }
   const d = createDiagnostics();
   measure(s, d);
   if (!(kinetic > 0) || !(d.potential < 0)) return 1;
   const factor = Math.sqrt((ratio * -d.potential) / kinetic);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < s.n; i++) {
     for (let c = 0; c < 3; c++) s.v[3 * i + c] = com[c] + factor * (s.v[3 * i + c] - com[c]);
   }
   return factor;

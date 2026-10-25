@@ -37,7 +37,7 @@ export const SERIES: readonly SeriesSpec[] = [
   { key: 'minSeparation', label: 'Closest pair distance', log: true, merge: 'min', hint: 'Dips explain energy spikes and shrinking IAS15 steps: a close encounter.' },
   { key: 'dt', label: 'Step size taken', log: true, merge: 'min', hint: 'Constant for fixed-step methods. IAS15 shrinks it near close encounters.' },
   { key: 'forceEvals', label: 'Force evaluations (cumulative)', log: false, merge: 'last', hint: 'The cost, for comparing methods fairly.' },
-  { key: 'analyticError', label: 'Error against the exact Kepler solution', log: true, merge: 'max', hint: 'Only when one body is massless: the other two have a closed-form orbit.' },
+  { key: 'analyticError', label: 'Error against the exact Kepler solution', log: true, merge: 'max', hint: 'Only when the orbit has a closed form: two bodies, or three with one massless.' },
   { key: 'divergence', label: 'Divergence from the twin (largest body offset)', log: true, merge: 'max', hint: 'Comparison mode only. Exponential growth is chaos: a nearby start separates at a rate set by the Lyapunov time. Steady growth is two methods disagreeing.' },
 ];
 
@@ -61,6 +61,8 @@ function merge(how: SeriesSpec['merge'], a: number, b: number): number {
 }
 
 export class Sampler {
+  /** How many bodies the trajectory has: 2 or 3. Read from the system at each sample. */
+  bodies = 3;
   /** Time between samples, in sim time. */
   interval = 1;
   /** Samples stored. */
@@ -152,6 +154,7 @@ export class Sampler {
 
   /** Measures the true state into the open bin, and closes the bin once it holds `stride` samples. */
   private sample(sim: Simulation, first: boolean): void {
+    this.bodies = sim.state.n;
     const d = sim.refreshDiagnostics();
     const ref = sim.reference;
     if (first) this.com0.set(d.com);
@@ -214,10 +217,10 @@ export class Sampler {
   /** The trajectory at the sample times as CSV: elapsed time, sim time, then x, y, z of each body (plan §7.8). */
   toTrajectoryCsv(): string {
     const header = ['elapsed_time', 't'];
-    for (let b = 1; b <= 3; b++) for (const axis of ['x', 'y', 'z']) header.push(`${axis}${b}`);
+    for (let b = 1; b <= this.bodies; b++) for (const axis of ['x', 'y', 'z']) header.push(`${axis}${b}`);
     const rows = [header.join(',')];
     for (let i = 0; i < this.length; i++) {
-      rows.push([this.x[i], this.time[i], ...this.positions.subarray(9 * i, 9 * i + 9)].join(','));
+      rows.push([this.x[i], this.time[i], ...this.positions.subarray(9 * i, 9 * i + 3 * this.bodies)].join(','));
     }
     return rows.join('\n') + '\n';
   }

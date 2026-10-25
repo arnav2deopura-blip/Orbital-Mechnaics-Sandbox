@@ -74,10 +74,10 @@ export class DropLines {
    * Places the lines for bodies at world positions x. Both ends are computed in Float64 relative
    * to the floating origin, so what reaches the GPU is small.
    */
-  update(x: Float64Array, origin: Float64Array, frame: PlaneFrame, pixelRatio: number): void {
+  update(x: Float64Array, origin: Float64Array, frame: PlaneFrame, pixelRatio: number, bodies = 3): void {
     const n = frame.n;
     const planeD = frame.offsetFrom(origin);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < bodies; i++) {
       const rx = x[3 * i] - origin[0];
       const ry = x[3 * i + 1] - origin[1];
       const rz = x[3 * i + 2] - origin[2];
@@ -96,6 +96,8 @@ export class DropLines {
       this.dotPositions[3 * i + 1] = fy;
       this.dotPositions[3 * i + 2] = fz;
     }
+    this.lineGeometry.setDrawRange(0, 2 * bodies);
+    this.dotGeometry.setDrawRange(0, bodies);
     this.lineGeometry.attributes.position.needsUpdate = true;
     this.dotGeometry.attributes.position.needsUpdate = true;
     this.dotMaterial.uniforms.uSize.value = DOT_PIXELS * pixelRatio;
