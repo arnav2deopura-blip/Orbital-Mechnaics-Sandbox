@@ -1,4 +1,5 @@
 import { Cancelled } from '../sim/batch';
+import type { ChaosSpec, ChaosVerdict } from '../sim/chaos';
 import type { FastForwardResult, FastForwardSpec, LyapunovResult, LyapunovSpec, SweepResult, SweepSpec } from '../sim/batch';
 import type { ClientMessage, HostMessage, Job, JobResult } from '../worker/protocol';
 
@@ -46,6 +47,10 @@ export class BatchClient {
 
   lyapunov(spec: LyapunovSpec, onProgress?: (fraction: number) => void): RunningJob<LyapunovResult> {
     return this.start({ kind: 'lyapunov', spec }, onProgress) as RunningJob<LyapunovResult>;
+  }
+
+  chaos(spec: ChaosSpec, onProgress?: (fraction: number) => void): RunningJob<ChaosVerdict> {
+    return this.start({ kind: 'chaos', spec }, onProgress) as RunningJob<ChaosVerdict>;
   }
 
   /** Ends the worker, failing every job still running. */

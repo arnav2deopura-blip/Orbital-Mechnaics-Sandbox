@@ -26,6 +26,8 @@
 
 **Periodic orbit.** A solution that returns exactly to its starting state after a period.
 
+**Predictability horizon.** How long a computed path can be trusted in a chaotic system: roughly the Lyapunov time times $\ln(0.1/\varepsilon)$, for an error of relative size $\varepsilon$. After it the path is one of many equally valid ones.
+
 **Softening.** Replacing $r^2$ by $r^2+\varepsilon^2$ in the force so that close encounters are gentler.
 
 **Symplectic.** Preserving phase-space volume: the property that keeps the energy error bounded.

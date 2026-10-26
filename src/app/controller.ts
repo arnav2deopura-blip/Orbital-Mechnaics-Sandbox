@@ -3,6 +3,9 @@ import { routhRatio } from '../presets/generators';
 import { bodyCountOf, instantiate } from '../presets/schema';
 import type { ParamValues, Preset } from '../presets/schema';
 import { angularMomentumError, characteristicTime, energyError, momentumError, systemSize } from '../sim/diagnostics';
+import { Cancelled } from '../sim/batch';
+import { chaosOffReason, createVerdict, predictabilityHorizon } from '../sim/chaos';
+import type { ChaosSpec, ChaosVerdict } from '../sim/chaos';
 import { hasEscaped } from '../sim/events';
 import type { IntegratorId } from '../sim/integrators/types';
 import { DEFAULT_SAMPLES_PER_PERIOD, Sampler } from '../sim/sampler';
@@ -12,10 +15,11 @@ import { nudge as nudgeState, rotateState, scaleToBound } from '../sim/transform
 import type { Axis, Nudge } from '../sim/transforms';
 import type { BodyCount, SystemState } from '../sim/types';
 import type { CameraMode } from '../render/scene';
+import type { RunningJob } from './batch';
 import { Comparison } from './comparison';
 import type { ComparisonOptions } from './comparison';
 import { bySeverity, FAR_SIZES, preflight, runtimeIssues } from './health';
-import type { Fix, Issue } from './health';
+import type { ChaosInput, Fix, Issue } from './health';
 import { suggestPreset } from './suggest';
 import type { Suggestion } from './suggest';
 import { SimLoop } from './loop';
@@ -56,6 +60,8 @@ export interface Readout {
   /** The phase-space distance from the start after "return to start", NaN until one has finished. */
   returnDistance: number;
   status: string;
+  /** What the chaos probe has found, in a few words. */
+  chaos: string;
 }
 
 /** One body as the editor shows it: plain numbers, with positions and velocities as xyz triples. */
@@ -101,7 +107,15 @@ export class Controller {
     divergence: NaN,
     returnDistance: NaN,
     status: '',
+    chaos: '',
   };
+  /**
+   * What the background chaos probe has found about the run's starting state (sim/chaos.ts). Filled
+   * in a few seconds after a load or edit, by the worker `chaosProbe` hands the job to.
+   */
+  readonly chaos: ChaosVerdict = createVerdict();
+  /** Starts the probe on a worker. Null where there is none (tests, a browser without workers): the verdict then stays off. */
+  chaosProbe: ((spec: ChaosSpec, onProgress: (fraction: number) => void) => RunningJob<ChaosVerdict>) | null = null;
   /** The preset last loaded with two bodies, and with three: where switching the body count goes back to. */
   readonly lastPreset: Record<BodyCount, string> = { ...DEFAULT_PRESET_ID };
   private lastCount: BodyCount = 3;
@@ -133,6 +147,10 @@ export class Controller {
   /** Warnings that have already paused this run once: pressing play again must not pause it again. */
   private readonly pausedFor = new Set<string>();
   private sinceReadout = 0;
+  private chaosJob: RunningJob<ChaosVerdict> | null = null;
+  /** Seconds until a pending probe starts (so dragging a slider does not start one per frame), or -1 when none is waiting. */
+  private chaosDelay = -1;
+  private horizonMarked = false;
   private returnMessage = '';
   private samplesPerPeriod = DEFAULT_SAMPLES_PER_PERIOD;
 
@@ -222,6 +240,7 @@ export class Controller {
     this.custom = Object.keys(defaults).some((key) => defaults[key] !== this.params[key]);
     this.readDraft();
     this.restartHistory();
+    this.restartChaos();
     this.newRun();
     this.lastPreset[sim.state.n] = preset.id;
     if (sim.state.n !== this.lastCount) {
@@ -284,6 +303,7 @@ export class Controller {
     this.view.clearTrails();
     this.readDraft();
     this.restartHistory();
+    this.restartChaos();
     this.newRun();
   }
 
@@ -468,6 +488,10 @@ export class Controller {
       this.sampler.divergence = this.comparison.measure(this.sim, rendered, this.loop.renderedTwin);
     }
     this.sinceReadout += dtSeconds;
+    if (this.chaosDelay >= 0) {
+      this.chaosDelay -= dtSeconds;
+      if (this.chaosDelay < 0) void this.launchChaos();
+    }
     if (this.sinceReadout >= READOUT_SECONDS) this.updateReadout();
     return rendered;
   }
@@ -487,7 +511,110 @@ export class Controller {
     readout.forceEvals = sim.counters.forceEvals;
     readout.divergence = this.comparison?.divergence ?? NaN;
     readout.status = this.status();
+    readout.chaos = this.chaosText();
     this.checkHealth();
+  }
+
+  // ---- the chaos probe (sim/chaos.ts) ---------------------------------------------------------
+
+  /**
+   * Forgets what the probe knew and, after a short pause, starts it again on the run's starting
+   * state. The probe is about the equations and the start, so a new run of the same system (reset)
+   * or another method does not call this; a load or an edit does.
+   */
+  private restartChaos(): void {
+    this.chaosJob?.cancel();
+    this.chaosJob = null;
+    this.horizonMarked = false;
+    const { sim, chaos } = this;
+    Object.assign(chaos, createVerdict());
+    const off = chaosOffReason(sim.baselineSnapshot(), sim.reference.period, sim.reference.size);
+    if (off !== null) {
+      chaos.reason = off;
+      this.chaosDelay = -1;
+      return;
+    }
+    chaos.state = 'measuring';
+    chaos.done = false;
+    this.chaosDelay = 0.4;
+  }
+
+  /** Starts the probe now, and resolves when it is done. For tests and for restarting at once. */
+  async probeChaos(): Promise<void> {
+    this.chaosDelay = -1;
+    await this.launchChaos();
+  }
+
+  private async launchChaos(): Promise<void> {
+    const { sim, chaos } = this;
+    if (this.chaosProbe === null) {
+      Object.assign(chaos, createVerdict());
+      chaos.reason = 'No background worker is available to run the chaos probe.';
+      return;
+    }
+    let job: RunningJob<ChaosVerdict> | null = null;
+    const progress = (fraction: number): void => {
+      if (job !== null && this.chaosJob === job) chaos.progress = fraction;
+    };
+    try {
+      job = this.chaosProbe({ state: sim.baselineSnapshot(), period: sim.reference.period, size: sim.reference.size }, progress);
+    } catch (error) {
+      Object.assign(chaos, createVerdict());
+      chaos.state = 'inconclusive';
+      chaos.reason = error instanceof Error ? error.message : String(error);
+      return;
+    }
+    const started = job;
+    this.chaosJob = started;
+    started.result.catch(() => {}); // handled below; keeps a cancelled job from reporting as unhandled
+    const wait = started.result.then(
+      (verdict) => {
+        if (this.chaosJob !== started) return; // another run began while this one worked
+        Object.assign(chaos, verdict);
+        this.updateReadout();
+      },
+      (error: unknown) => {
+        if (this.chaosJob !== started || error instanceof Cancelled) return;
+        Object.assign(chaos, createVerdict());
+        chaos.state = 'inconclusive';
+        chaos.reason = error instanceof Error ? error.message : String(error);
+      },
+    );
+    await wait;
+  }
+
+  /** The chaos finding in a few words, for the Live Numbers panel. */
+  private chaosText(): string {
+    const { chaos } = this;
+    const per = (n: number): string => (n < 10 ? n.toFixed(1) : String(Math.round(n)));
+    switch (chaos.state) {
+      case 'off':
+        return this.sim.state.n === 2 ? 'none: two bodies' : 'not probed';
+      case 'measuring':
+        return `measuring ${Math.round(100 * chaos.progress)}%`;
+      case 'regular':
+        return `no sign in ${Math.round(chaos.probedPeriods)} T`;
+      case 'inconclusive':
+        return 'inconclusive';
+      case 'chaotic':
+      case 'very-chaotic':
+        return `${chaos.state === 'very-chaotic' ? 'extreme' : 'chaotic'}, e per ${per(chaos.lyapunovPeriods)} T`;
+    }
+  }
+
+  /** The probe's finding as the health check wants it, once it has found chaos; null otherwise. */
+  private chaosInput(): ChaosInput | null {
+    const { chaos, sim, readout } = this;
+    if ((chaos.state !== 'chaotic' && chaos.state !== 'very-chaotic') || !(chaos.lyapunovPeriods > 0) || !Number.isFinite(chaos.lyapunovPeriods)) return null;
+    const period = sim.reference.period;
+    // An error of the size the method makes (at least rounding) grows to a tenth of the system after this long.
+    const horizon = predictabilityHorizon(chaos.lyapunovPeriods * period, Math.max(1e-12, readout.energyError));
+    return {
+      state: chaos.state,
+      lyapunovPeriods: chaos.lyapunovPeriods,
+      horizonPeriods: horizon / period,
+      elapsedPeriods: Math.abs(sim.state.t - sim.baselineTime) / period,
+    };
   }
 
   /** What is wrong with the run, most severe first. Refreshed with the readout, about ten times a second. */
@@ -536,6 +663,10 @@ export class Controller {
       case 'defaults':
         this.loadPreset(this.preset);
         break;
+      case 'twin':
+        // A nudge of a ten-thousandth of the system: about seven e-folds from visible, so it shows within a few tens of orbits rather than minutes.
+        this.startComparison({ kind: 'twin', nudge: { body: 0, target: 'position', direction: 'random', size: 1e-4 } });
+        break;
     }
     this.play();
   }
@@ -543,6 +674,7 @@ export class Controller {
   /** A fresh start (load, edit or reset): warnings dismissed before come back, and may pause again. */
   private newRun(): void {
     this.runId++;
+    this.horizonMarked = false;
     this.pausedFor.clear();
     this.checkStart();
     this.updateReadout();
@@ -571,8 +703,14 @@ export class Controller {
       escaped: bodies.map((k) => hasEscaped(sim.state, k, escape)),
       far,
       custom: this.custom,
+      chaos: this.chaosInput(),
     });
     this.currentIssues = bySeverity([...running, ...this.preflightIssues]);
+    const horizon = running.some((issue) => issue.id === 'chaos-horizon');
+    if (horizon && !this.horizonMarked) {
+      this.horizonMarked = true;
+      this.sampler.mark('predictability horizon');
+    }
     for (const issue of this.currentIssues) {
       if (!issue.pause || this.pausedFor.has(issue.id)) continue;
       this.pausedFor.add(issue.id);

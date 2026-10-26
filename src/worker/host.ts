@@ -1,5 +1,6 @@
 import { Cancelled, convergenceSweep, fastForward, lyapunov } from '../sim/batch';
 import type { BatchContext } from '../sim/batch';
+import { chaosProbe } from '../sim/chaos';
 import type { ClientMessage, HostMessage, Job, JobResult } from './protocol';
 
 // What the worker does with a message, apart from the worker itself, so it can be tested without
@@ -25,6 +26,8 @@ async function run(job: Job, ctx: BatchContext): Promise<JobResult> {
       return fastForward(job.spec, ctx);
     case 'lyapunov':
       return lyapunov(job.spec, ctx);
+    case 'chaos':
+      return chaosProbe(job.spec, ctx);
     default:
       throw new Error(`unknown job: ${(job as { kind?: string }).kind}`);
   }

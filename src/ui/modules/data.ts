@@ -38,6 +38,8 @@ export function numbersModule(controller: Controller): ModuleSpec {
       watch('dt', 'step taken', scientific);
       watch('steps', 'steps', fixed(0));
       watch('forceEvals', 'force evals', fixed(0), 'How many times the forces were computed: the fair measure of cost.');
+      // Two bodies are integrable, so the probe has nothing to say there.
+      if (!pair) setTitle(pane.addBinding(readout, 'chaos', { label: 'chaos', readonly: true }), 'A background probe follows two copies of the starting state a hundred-millionth apart and times how fast they separate. "e per N T" means the two copies separate by a factor of e every N periods (T_char): below 3 is chaotic, below 1 extremely so.');
       learnLink(body, 'How to read these numbers →', 'conservation-laws');
       return () => pane.refresh();
     },

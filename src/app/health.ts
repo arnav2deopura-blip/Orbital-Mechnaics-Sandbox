@@ -10,9 +10,10 @@ export type Severity = 'info' | 'warning' | 'danger';
 
 /**
  * What a warning can offer to do. 'bind' slows the bodies until the system is bound; 'suggested'
- * loads the preset closest to the user's values; 'defaults' reloads the preset's own values.
+ * loads the preset closest to the user's values; 'defaults' reloads the preset's own values; 'twin'
+ * starts a ghost twin, which makes chaos visible.
  */
-export type Fix = 'bind' | 'ias15' | 'smaller-step' | 'reset' | 'frame' | 'suggested' | 'defaults';
+export type Fix = 'bind' | 'ias15' | 'smaller-step' | 'reset' | 'frame' | 'suggested' | 'defaults' | 'twin';
 
 export interface Issue {
   /** Stable per kind (and body), so a dismissed warning stays dismissed while it lasts. */
@@ -143,6 +144,16 @@ export const DRIFT_ENERGY = 1e-2;
 /** A body this many times the starting size from the center of mass is reported as far away. */
 export const FAR_SIZES = 10;
 
+/** What the chaos probe found, when it found chaos (sim/chaos.ts). Times are in T_char. */
+export interface ChaosInput {
+  state: 'chaotic' | 'very-chaotic';
+  /** How many periods it takes two nearby runs to separate by a factor of e. */
+  lyapunovPeriods: number;
+  /** How long the path can be trusted, and how long the run has gone, both since the start. */
+  horizonPeriods: number;
+  elapsedPeriods: number;
+}
+
 export interface RuntimeInput {
   integrator: IntegratorId;
   /** Explicit Euler, whose failure is the lesson. */
@@ -156,6 +167,8 @@ export interface RuntimeInput {
   far: boolean[];
   /** The user changed the system (or the preset's sliders), so another preset may suit them better. */
   custom: boolean;
+  /** Set once the chaos probe has found the run chaotic. */
+  chaos?: ChaosInput | null;
 }
 
 /** What has gone wrong while running. */
@@ -223,6 +236,8 @@ export function runtimeIssues(input: RuntimeInput): Issue[] {
     });
   }
 
+  if (input.chaos) issues.push(...chaosIssues(input.chaos));
+
   for (let k = 0; k < input.escaped.length; k++) {
     if (input.escaped[k] && input.escaped.length === 2) {
       // Both bodies of a pair escape together: say it once.
@@ -256,6 +271,46 @@ export function runtimeIssues(input: RuntimeInput): Issue[] {
         fixes: ['frame'],
       });
     }
+  }
+  return issues;
+}
+
+/** A count of periods in words: one decimal below ten, whole above. */
+function periods(n: number): string {
+  if (!(n > 0)) return 'no';
+  return n < 10 ? n.toFixed(1).replace(/\.0$/, '') : String(Math.round(n));
+}
+
+/**
+ * The warnings for a run the probe found chaotic: what it means and for how long the picture can be
+ * trusted (the predictability horizon), and a second one once the run has gone past that.
+ */
+function chaosIssues({ state, lyapunovPeriods, horizonPeriods, elapsedPeriods }: ChaosInput): Issue[] {
+  const very = state === 'very-chaotic';
+  const issues: Issue[] = [
+    {
+      id: 'chaotic',
+      severity: very ? 'warning' : 'info',
+      title: very ? 'This run is extremely chaotic' : 'This run is chaotic',
+      detail:
+        `Two copies that start a hundred-millionth of the system's size apart pull away from each other by a factor of e about every ${periods(lyapunovPeriods)} orbits` +
+        `${very ? ', which is very fast' : ''}. What you see is a real solution, but a tiny difference, even rounding, gives a different one, ` +
+        `so it can be trusted for only about ${periods(horizonPeriods)} orbits. Energy staying constant does not mean the path is right. This is how three bodies behave, not a bug.`,
+      learn: 'chaos',
+      fixes: ['twin'],
+    },
+  ];
+  if (elapsedPeriods > horizonPeriods) {
+    issues.push({
+      id: 'chaos-horizon',
+      severity: 'warning',
+      title: 'Past the point where this path can be trusted',
+      detail:
+        `The run has gone about ${periods(elapsedPeriods)} orbits, longer than the roughly ${periods(horizonPeriods)} it can be followed reliably. ` +
+        'From here on it is one possible path out of many that a tiny difference would give, and it is still a valid example of the motion.',
+      learn: 'chaos',
+      fixes: ['twin'],
+    });
   }
   return issues;
 }

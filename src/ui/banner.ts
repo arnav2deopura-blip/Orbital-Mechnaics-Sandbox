@@ -17,6 +17,7 @@ const FIX_LABELS: Record<Exclude<Fix, 'suggested'>, string> = {
   reset: 'Restart this run',
   frame: 'Frame all bodies',
   defaults: "Restore the preset's own values",
+  twin: 'Show me: start a ghost twin',
 };
 
 export function createBanner(shell: Shell, controller: Controller, prefs: Prefs): () => void {
@@ -85,6 +86,7 @@ export function createBanner(shell: Shell, controller: Controller, prefs: Prefs)
     for (const fix of issue.fixes) {
       if (fix === 'suggested' && !suggested) continue;
       if (fix === 'defaults' && !(controller.preset.params?.length && controller.custom)) continue;
+      if (fix === 'twin' && controller.comparison !== null) continue;
       const action = el('button', primary ? 'banner-button primary' : 'banner-button');
       action.type = 'button';
       action.textContent = fix === 'suggested' && suggested ? `Try ${suggested.name}` : FIX_LABELS[fix as Exclude<Fix, 'suggested'>];

@@ -1,3 +1,4 @@
+import type { ChaosSpec, ChaosVerdict } from '../sim/chaos';
 import type { FastForwardResult, FastForwardSpec, LyapunovResult, LyapunovSpec, SweepResult, SweepSpec } from '../sim/batch';
 
 // The messages between the page and the batch worker (plan §9). Specs and results hold only
@@ -7,9 +8,10 @@ import type { FastForwardResult, FastForwardSpec, LyapunovResult, LyapunovSpec, 
 export type Job =
   | { kind: 'sweep'; spec: SweepSpec }
   | { kind: 'fastForward'; spec: FastForwardSpec }
-  | { kind: 'lyapunov'; spec: LyapunovSpec };
+  | { kind: 'lyapunov'; spec: LyapunovSpec }
+  | { kind: 'chaos'; spec: ChaosSpec };
 
-export type JobResult = SweepResult | FastForwardResult | LyapunovResult;
+export type JobResult = SweepResult | FastForwardResult | LyapunovResult | ChaosVerdict;
 
 export type ClientMessage = { type: 'run'; id: number; job: Job } | { type: 'cancel'; id: number };
 

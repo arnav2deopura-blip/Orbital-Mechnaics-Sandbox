@@ -8,6 +8,7 @@
 import '@fontsource-variable/archivo/wdth.css';
 import './ui/tokens.css';
 import './ui/shell.css';
+import { BatchClient } from './app/batch';
 import { Controller } from './app/controller';
 import { isPageHash, onRoute } from './app/router';
 import type { Route } from './app/router';
@@ -42,6 +43,9 @@ learnPage.hidden = true;
 const shell = new Shell(simPage, prefs);
 const view = new SceneView(shell.viewport);
 const controller = new Controller(view, FIGURE_EIGHT, { offset });
+// The chaos probe is heavy for some systems, so it has a worker of its own, apart from the batch jobs'.
+const chaosClient = new BatchClient();
+controller.chaosProbe = (spec, onProgress) => chaosClient.chaos(spec, onProgress);
 for (const count of ['2', '3'] as const) {
   const id = prefs.lastPresets[count];
   if (id) controller.lastPreset[Number(count) as 2 | 3] = id;
