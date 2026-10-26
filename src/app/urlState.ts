@@ -134,7 +134,8 @@ function parseLinkParams(text: string): Record<string, unknown> {
   for (const pair of text.split('&')) {
     const [key, raw = ''] = pair.split('=');
     const value = decodeURIComponent(raw);
-    if (key in top) out[key] = top[key](value);
+    // Own keys only: `key in top` also matches `__proto__` and `toString`, and calling those throws away the whole link.
+    if (Object.hasOwn(top, key)) out[key] = top[key](value);
     else if (key !== '' && value !== '' && Number.isFinite(Number(value))) params[key] = Number(value);
   }
   if (Object.keys(params).length > 0) out.params = params;

@@ -81,8 +81,11 @@ suite('URL hash fuzzing (plan 2.1)', () => {
       const out = tryLink(junk);
       if (out) bad.push(`#${junk} -> ${out}`);
     }
-    log(`query-style failures: ${bad.length}\n` + bad.slice(0, 60).join('\n'));
-    expect(bad).toEqual([]);
+    // A system that fails on its first step with a clear message (dt of 1e300, G of 1e308) is handled; only throws and NaN states are not.
+    const clean = bad.filter((b) => b.includes('fails immediately'));
+    const broken = bad.filter((b) => !b.includes('fails immediately'));
+    log(`query-style: ${clean.length} failed cleanly on the first step, ${broken.length} broke\n` + broken.slice(0, 60).join('\n'));
+    expect(broken).toEqual([]);
   }, 600_000);
 
   it('survives hostile structured (s=) links', () => {
@@ -109,8 +112,10 @@ suite('URL hash fuzzing (plan 2.1)', () => {
       const out = tryLink('s=' + encodeShare(s as never).slice(2));
       if (out) bad.push(`${JSON.stringify(s).slice(0, 180)} -> ${out}`);
     }
-    log(`structured failures: ${bad.length}\n` + bad.slice(0, 40).join('\n'));
-    expect(bad).toEqual([]);
+    const clean = bad.filter((b) => b.includes('fails immediately'));
+    const broken = bad.filter((b) => !b.includes('fails immediately'));
+    log(`structured: ${clean.length} failed cleanly on the first step, ${broken.length} broke\n` + broken.slice(0, 40).join('\n'));
+    expect(broken).toEqual([]);
   }, 600_000);
 
   it('every preset slider stays finite at and beyond its range', () => {
@@ -134,8 +139,8 @@ suite('URL hash fuzzing (plan 2.1)', () => {
       }
     }
     log(`slider failures: ${bad.length}\n` + bad.join('\n'));
-    // In-range failures are bugs; out-of-range ones are only reachable through a hand-written link.
-    expect(bad.filter((b) => b.includes('IN RANGE'))).toEqual([]);
+    // Out-of-range values are pulled back to the slider range, so nothing may fail now, in range or not.
+    expect(bad).toEqual([]);
   }, 300_000);
 });
 

@@ -7,10 +7,11 @@ import { Cancelled } from '../sim/batch';
 import { chaosOffReason, createVerdict, predictabilityHorizon } from '../sim/chaos';
 import type { ChaosSpec, ChaosVerdict } from '../sim/chaos';
 import { hasEscaped } from '../sim/events';
+import { createIntegrator } from '../sim/integrators';
 import type { IntegratorId } from '../sim/integrators/types';
 import { DEFAULT_SAMPLES_PER_PERIOD, Sampler } from '../sim/sampler';
 import { Simulation } from '../sim/simulation';
-import { copyState, snapshot } from '../sim/state';
+import { copyState, createCounters, snapshot } from '../sim/state';
 import { nudge as nudgeState, rotateState, scaleToBound } from '../sim/transforms';
 import type { Axis, Nudge } from '../sim/transforms';
 import type { BodyCount, SystemState } from '../sim/types';
@@ -144,6 +145,11 @@ export class Controller {
   private readonly view: ViewPort;
   private preflightIssues: Issue[] = [];
   private currentIssues: Issue[] = [];
+  /** A notice about what the controller itself did or refused (a method that cannot run the system), shown with the warnings. */
+  private notice: Issue | null = null;
+  /** The notice the next new run starts with: set by an edit that had to change the method. */
+  private nextNotice: Issue | null = null;
+  private noticeCount = 0;
   /** Warnings that have already paused this run once: pressing play again must not pause it again. */
   private readonly pausedFor = new Set<string>();
   private sinceReadout = 0;
@@ -299,6 +305,17 @@ export class Controller {
     this.stopComparison();
     if (pause) this.pause();
     this.cancelReturn();
+    // Loading throws if the method rejects the system, after the state has been replaced, so a method that
+    // cannot run the edited system is swapped out first. IAS15 takes anything.
+    const unsupported = this.sim.integrator.id === 'wh' ? this.rejection('wh', next) : null;
+    if (unsupported !== null) {
+      this.sim.setIntegrator('ias15');
+      this.nextNotice = this.makeNotice(
+        'info',
+        'Switched to IAS15',
+        `Wisdom-Holman cannot run the system as edited: ${explainRejection(unsupported)}. The run continues with IAS15, which takes any system.`,
+      );
+    }
     this.sim.load(next, { recenter });
     this.view.clearTrails();
     this.readDraft();
@@ -351,13 +368,44 @@ export class Controller {
    * Switches method, continuing from the current state (plan §4.7). WH has no softening, so
    * choosing it removes any.
    */
-  setIntegrator(id: IntegratorId, symplecticEuler = false): void {
-    if (id === 'wh' && this.sim.state.eps2 !== 0) this.setSoftening(0);
+  setIntegrator(id: IntegratorId, symplecticEuler = false): string | null {
+    if (id === 'wh') {
+      // Softening is removed, so judge the system without it; and refuse before changing anything.
+      const trial = snapshot(this.sim.state);
+      trial.eps2 = 0;
+      const why = this.rejection(id, trial);
+      if (why !== null) return this.refuse(why);
+      if (this.sim.state.eps2 !== 0) this.setSoftening(0);
+    }
     this.sim.setIntegrator(id, symplecticEuler);
     this.sampler.mark(id === 'euler' && symplecticEuler ? 'symplectic Euler' : id);
+    this.notice = null;
     this.pausedFor.clear();
     this.checkStart();
     this.updateReadout();
+    return null;
+  }
+
+  /** Why `id` cannot run `state`, in the integrator's own words, or null if it can. Changes nothing. */
+  private rejection(id: IntegratorId, state: SystemState): string | null {
+    try {
+      createIntegrator(id).init(state, { dt: 1, counters: createCounters(), centralBody: this.sim.params.centralBody, epsTol: this.sim.params.epsTol });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  private makeNotice(severity: Issue['severity'], title: string, detail: string): Issue {
+    return { id: `notice-${++this.noticeCount}`, severity, title, detail, learn: 'wisdom-holman', fixes: [] };
+  }
+
+  /** Says why a change of method was not made, on the banner, and returns the same words. */
+  private refuse(reason: string): string {
+    const detail = `Wisdom-Holman cannot run this system: ${explainRejection(reason)}. The method was not changed.`;
+    this.notice = this.makeNotice('warning', "Can't switch to that method", detail);
+    this.checkHealth();
+    return detail;
   }
 
   /** The step size of the fixed-step methods, and the first guess of IAS15. Takes effect on the next step. */
@@ -368,8 +416,9 @@ export class Controller {
 
   /** WH only: the body the others orbit (undefined: the most massive). Restarts WH, which orders the bodies once. */
   setCentralBody(body: 0 | 1 | 2 | undefined): void {
+    const before = this.sim.params.centralBody;
     this.sim.params.centralBody = body;
-    if (this.sim.integrator.id === 'wh') this.setIntegrator('wh');
+    if (this.sim.integrator.id === 'wh' && this.setIntegrator('wh') !== null) this.sim.params.centralBody = before;
   }
 
   /**
@@ -674,6 +723,8 @@ export class Controller {
   /** A fresh start (load, edit or reset): warnings dismissed before come back, and may pause again. */
   private newRun(): void {
     this.runId++;
+    this.notice = this.nextNotice;
+    this.nextNotice = null;
     this.horizonMarked = false;
     this.pausedFor.clear();
     this.checkStart();
@@ -705,7 +756,7 @@ export class Controller {
       custom: this.custom,
       chaos: this.chaosInput(),
     });
-    this.currentIssues = bySeverity([...running, ...this.preflightIssues]);
+    this.currentIssues = bySeverity([...running, ...this.preflightIssues, ...(this.notice ? [this.notice] : [])]);
     const horizon = running.some((issue) => issue.id === 'chaos-horizon');
     if (horizon && !this.horizonMarked) {
       this.horizonMarked = true;
@@ -740,4 +791,11 @@ export class Controller {
     }
     return status;
   }
+}
+
+/** An integrator's rejection in plain words, to follow "cannot run this system:". */
+function explainRejection(reason: string): string {
+  if (/nonzero total mass/.test(reason)) return 'its central body and inner companion have no mass between them, and it works by following their Kepler orbit exactly';
+  if (/softening/.test(reason)) return 'it has softening, which Wisdom-Holman does not support';
+  return reason;
 }

@@ -202,7 +202,7 @@ const JUPITER_A = 5.203;
  * The Sun, Jupiter and a massless Trojan near the L4 point, in AU, solar masses and years
  * (G = 4 pi^2). Exactly at L4 the triangle is an exact rigid rotation and nothing happens, so the
  * Trojan starts `offset` degrees away along Jupiter's orbit, with the velocity the rigid rotation
- * would give there, and `inclination` degrees of out-of-plane speed: it then librates in the
+ * would give there, turned `inclination` degrees out of the plane: it then librates in the
  * tadpole orbit around L4 and oscillates in z.
  */
 export function trojan(p: { offset: number; inclination: number }): Generated {
@@ -215,10 +215,16 @@ export function trojan(p: { offset: number; inclination: number }): Generated {
   const ry = test.x[1] - sun.x[1];
   const x = sun.x[0] + rx * Math.cos(angle) - ry * Math.sin(angle);
   const y = sun.x[1] + rx * Math.sin(angle) + ry * Math.cos(angle);
+  // The velocity the rigid rotation gives it, relative to the Sun (which itself moves a little), turned out of
+  // the plane by `inclination` rather than added to: the heliocentric energy, and so the semi-major axis,
+  // stay those of the flat orbit at every inclination.
+  const tilt = rad(p.inclination);
+  const rel = [-omega * y - sun.v[0], omega * x - sun.v[1]];
+  const flat = Math.hypot(rel[0], rel[1]);
   const trojanBody: PresetBody = {
     ...test,
     x: [x, y, 0],
-    v: [-omega * y, omega * x, omega * JUPITER_A * Math.tan(rad(p.inclination))],
+    v: [sun.v[0] + rel[0] * Math.cos(tilt), sun.v[1] + rel[1] * Math.cos(tilt), flat * Math.sin(tilt)],
   };
   return { bodies: [sun, jupiter, trojanBody], period: (2 * Math.PI) / omega };
 }

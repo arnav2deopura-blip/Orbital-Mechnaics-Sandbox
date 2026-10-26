@@ -8,6 +8,18 @@ const NODES = 7;
 const MAX_ITER = 12;
 /** Corrector sweeps stop when the last coefficient changes by less than this fraction of the largest acceleration. */
 const CONVERGED = 1e-16;
+/**
+ * Roundoff keeps the change in the last coefficient from ever reaching CONVERGED on many steps. A
+ * corrector that has stopped improving counts as converged anyway once that change is below
+ * `settled`: SETTLED of epsTol, so far under the truncation error the step size is chosen to keep
+ * (the sweeps are only polishing roundoff), but never below the roundoff noise of the estimate
+ * (about 2e-13 of the acceleration, measured on a Kepler orbit) and never above SETTLED_CAP, so a
+ * huge epsTol (used to force a fixed step) cannot end the corrector early. Not failing to converge,
+ * then, but settling: the step is not a failure.
+ */
+const SETTLED = 1e-2;
+const SETTLED_FLOOR = 1e-13;
+const SETTLED_CAP = 1e-11;
 /** A step is rejected when the error estimate would shrink dt by more than this factor (plan §4.5). */
 const SAFETY = 0.25;
 const GROWTH = 1 / SAFETY;
@@ -37,7 +49,8 @@ for (let j = 0; j <= NODES; j++) {
  *   - predictor: b from the previous step, moved to the new origin and rescaled for the new dt
  *   - corrector: for each node in turn, predict the position there from the current b, evaluate
  *     the force, and fold the new value into b. Later nodes in the same sweep already see the
- *     earlier corrections. Sweeps repeat until the last coefficient stops changing.
+ *     earlier corrections. Sweeps repeat until the last coefficient stops changing, or stops improving
+ *     at a change far below epsTol (roundoff).
  *
  * b6 measures how well a degree-7 polynomial describes the acceleration, so max|b6| / max|a| is
  * the error estimate: dt_new = dt (epsTol / error)^(1/7). A step that would shrink dt by more than
@@ -229,8 +242,10 @@ export class IAS15 implements Integrator {
   private iterate(s: SystemState, dt: number): number {
     const { a0, xs, vs, b, g, xn, an } = this;
     const counters = this.params.counters;
+    const settled = Math.min(Math.max(SETTLED * (this.params.epsTol ?? DEFAULT_EPS_TOL), SETTLED_FLOOR), SETTLED_CAP);
     let maxa = 0;
     let converged = false;
+    let previous = Infinity;
 
     for (let sweep = 0; sweep < MAX_ITER && !converged; sweep++) {
       maxa = 0;
@@ -260,7 +275,10 @@ export class IAS15 implements Integrator {
           if (n === NODES && Math.abs(d) > maxdb6) maxdb6 = Math.abs(d); // d is the change in b6
         }
       }
-      converged = maxdb6 <= CONVERGED * maxa;
+      const residual = maxa > 0 ? maxdb6 / maxa : 0;
+      // Done: converged outright, or no longer improving at a residual that cannot matter.
+      converged = residual <= CONVERGED || (residual >= previous && residual <= settled);
+      previous = residual;
     }
     if (!converged) this.convergenceFailures++;
 

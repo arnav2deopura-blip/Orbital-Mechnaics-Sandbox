@@ -8,7 +8,7 @@ STRESS=1 npx vitest run tests/stress/inputs.test.ts
 STRESS=1 npx vitest run tests/stress/chaos.test.ts
 ```
 
-Both are skipped in normal `npm test` and CI. A failing case in them is a finding, not a regression. Phases 3–6 (performance soak, browser pass, content review, fixes) are not done yet.
+Both are skipped in normal `npm test` and CI. A failing case in them is a finding, not a regression. Phases 3–6 (performance soak, browser pass, content review, and the remaining fixes) are not done yet. The four small bugs marked **Fixed** below were fixed afterwards.
 
 Tags: **[P]** reproduced by a test or probe here, **[R]** seen only by reading the code and still to be reproduced.
 
@@ -61,6 +61,7 @@ Tags: **[P]** reproduced by a test or probe here, **[R]** seen only by reading t
 ### Physics and preset defects
 
 1. **Trojan inclination slider adds energy [P].** `generators.ts:221` sets `v_z = ωa·tan i` on top of the circular speed. Semi-major axis over radius: 1.001 at 0°, 1.009 at 5°, 1.033 at 10°, 1.079 at 15°, 1.154 at 20°, 1.280 at 25°, 1.503 at 30°. The default is 8°. Fix: rotate the velocity by (cos i, sin i), as `kepler()` already does.
+   **Fixed.** The velocity relative to the Sun is now turned out of the plane (cos i in it, sin i out), so the heliocentric energy and semi-major axis are the flat orbit's at every inclination, to 1e-9 (`generators.ts`, tests in `generators.test.ts`).
 2. **IAS15 false "corrector did not converge" warnings [P].** Count per 5000 steps, by `epsTol`:
 
    | Preset | 1e-6 | 1e-9 | 1e-12 |
@@ -74,6 +75,7 @@ Tags: **[P]** reproduced by a test or probe here, **[R]** seen only by reading t
    | near-radial | 0 | 1 | 0 |
 
    Evaluations per step also rise as the tolerance loosens (about 15 at 1e-12, 22 at 1e-9, 29–37 at 1e-6). Likely cause: `CONVERGED = 1e-16` with no stagnation exit in `iterate()` (`ias15.ts`).
+   **Fixed.** A corrector that has stopped improving at a change far below the tolerance now counts as converged (and stops), instead of being flagged. The settling threshold is 1% of epsTol, never below the roundoff noise (1e-13) nor above 1e-11. The false flags are gone at every tolerance but the very edge (an unstable orbit at 1e-12 still flags about 1 step in 5000, which is noise-limited), and a step forced far too large is still flagged (tests in `ias15.test.ts`).
 3. **IAS15 stalls on the Pythagorean problem [P].** In an 8 s wall budget it reached only t/T = 8.0 (t ≈ 87). With dtMin 1e-9 it needs 410,496 steps to reach t = 89.8. The error criterion reads roundoff noise from the tight binary far from the origin, so dt collapses, at exactly the interesting moment. The live app shows only "N% of requested speed" in a tooltip.
 4. **T_char is recomputed on every edit [R]** (`controller.ts` ~283), so the step readout, speed readout, chart sampling interval and coarse-step check all jump after a rotate, nudge or G change on a preset with a declared period (figure-eight: 6.326 → 4.443).
 5. **Šuvakov stability tests cannot tell stable from unstable orbits [R].** The 10-period bound of 1e-8 is also met by the unstable Butterfly I; Dragonfly's "unstable" label is untested; the `stable` flags have no cited source. Needs a monodromy/Floquet check.
@@ -82,6 +84,7 @@ Tags: **[P]** reproduced by a test or probe here, **[R]** seen only by reading t
 ### Input handling
 
 1. **Out-of-range preset sliders from a link give NaN states [P].** Not range-checked (`urlState.ts` ~138). Reproduced for:
+   **Fixed.** `resolveParams` pulls every override back to its slider's range and ignores non-numbers, so links, the UI and tests all get a real state (tests in `generators.test.ts` and `urlState.test.ts`). The message for a failure from absurd values is still the generic "close approach" one (see below).
    - kepler / kepler-orbit `e` ≥ 1.9, `massRatio` ≤ 0;
    - lagrange `mass` < 0;
    - star-planet-moon `fraction` ≤ 0;
@@ -90,9 +93,12 @@ Tags: **[P]** reproduced by a test or probe here, **[R]** seen only by reading t
 
    The user then sees "two bodies came so close that one step sent the numbers to infinity", which is the wrong cause.
 2. **`applyState` can throw [P].** `#preset=kepler&massRatio=-1e308` throws "IAS15 needs a positive first guess for dt" out of the link handler (NaN period gives a NaN first step).
+   **Fixed.** No longer reachable: the parameter is clamped, so the period is finite.
 3. **WH throws uncaught on a zero-mass central/inner pair [P]** (`wh.ts:99`; `Controller.edit` and `setIntegrator` do not catch it, leaving the state half-loaded). Also reachable programmatically: WH plus softening through `edit()` throws, which the UI avoids because `setSoftening` guards it.
+   **Fixed.** `Controller.setIntegrator` now checks the system with the integrator's own `init` on a copy and, if refused, changes nothing and shows a banner (and returns the reason). An edit that leaves a Wisdom-Holman run with a system it cannot run switches the run to IAS15 first, with an info banner. Choosing a central body that cannot run is reverted. (`controller.ts`, tests in `methodRejection.test.ts`.)
 4. **Extreme but finite link values fail cleanly on the first step [P]** (dt 1e300, G 1e308, dtMin ≥ 1e300, structured `bodies` with 1e300 coordinates or t = 1e300), but with the same misleading "close approach" message. No exceptions, no NaN left running.
 5. **`__proto__` as a link key rejects the whole link [P]**; other prototype names (`constructor`, `toString`) are ignored harmlessly. A rejected link gives no feedback [R].
+   **Fixed.** Link keys are matched with `Object.hasOwn`, so `__proto__` no longer throws the link away. A rejected link still gives no feedback.
 6. From code reading and not yet reproduced [R]:
    - Return to start reports false success when the direction is reversed mid-return, and leaves the run going backward.
    - Back/Forward to a `#s=…` hash reloads and wipes the run.

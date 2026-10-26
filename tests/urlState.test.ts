@@ -225,3 +225,31 @@ describe('captureState / applyState', () => {
     expect(controller.loop.settings.running).toBe(true);
   });
 });
+
+describe('hostile links', () => {
+  it('reads a link whose key is a prototype property name, instead of throwing the whole link away', () => {
+    expect(decodeShare('preset=figure-eight&__proto__=1')).toEqual({ preset: 'figure-eight' });
+    const named = decodeShare('preset=figure-eight&constructor=1&toString=2&hasOwnProperty=3&dt=0.01');
+    expect(named?.preset).toBe('figure-eight');
+    expect(named?.dt).toBe(0.01);
+  });
+
+  it('pulls a preset parameter back to its slider range, so the state is real and runs', () => {
+    for (const hash of ['preset=near-radial&e=1.5', 'preset=near-radial&e=-1', 'preset=kepler&massRatio=-1', 'preset=kepler&e=1e6', 'preset=star-planet-moon&fraction=0', 'preset=hyperbolic-flyby&e=0', 'preset=lagrange&mass=-198']) {
+      const state = decodeShare(hash);
+      expect(state, hash).not.toBeNull();
+      const { controller, view } = make();
+      expect(() => applyState(controller, view, state as ShareState), hash).not.toThrow();
+      const sim = controller.sim;
+      expect([...sim.state.x, ...sim.state.v].every(Number.isFinite), hash).toBe(true);
+      const result = sim.advanceTo(sim.state.t + 0.1 * sim.reference.period, Infinity);
+      expect(result.status, hash).not.toBe('failed');
+    }
+  });
+
+  it('does not throw on a parameter so extreme the generator would have made a NaN period', () => {
+    const { controller, view } = make();
+    expect(() => applyState(controller, view, decodeShare('preset=kepler&massRatio=-1e308') as ShareState)).not.toThrow();
+    expect(Number.isFinite(controller.sim.reference.period)).toBe(true);
+  });
+});

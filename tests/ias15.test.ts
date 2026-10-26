@@ -417,3 +417,35 @@ describe('IAS15 direction and reset', () => {
     expect(Array.from(without.s.x)).not.toEqual(Array.from(withReset.s.x));
   });
 });
+
+describe('IAS15 corrector convergence', () => {
+  const failuresOver = (steps: number, init: Partial<IntegratorParams>, e = 0.5): { failures: number; n: number } => {
+    const { s, T } = kepler(e, 1);
+    const ias = new IAS15();
+    ias.init(s, { dt: T / 100, counters: createCounters(), ...init });
+    for (let n = 0; n < steps; n++) ias.step(s);
+    return { failures: ias.convergenceFailures, n: steps };
+  };
+
+  it('does not call an ordinary step a failure when roundoff keeps the last coefficient from settling', () => {
+    // These counted 1 to 121 per 5000 steps before: the sweeps polish roundoff far below the tolerance.
+    for (const epsTol of [1e-6, 1e-9]) expect(failuresOver(5000, { epsTol }).failures, `epsTol ${epsTol}`).toBe(0);
+  });
+
+  it('still reports a corrector that really is not converging: a step forced to a quarter of the orbit', () => {
+    const { s, T } = kepler(0.5, 1);
+    const ias = new IAS15();
+    ias.init(s, { dt: T / 4, dtMin: T / 4, dtMax: T / 4, epsTol: 1e9, counters: createCounters() });
+    for (let n = 0; n < 40; n++) ias.step(s);
+    expect(ias.convergenceFailures).toBeGreaterThan(10);
+  });
+
+  it('keeps its accuracy: the energy error is no worse than before the change', () => {
+    const { s, T } = kepler(0.5, 1);
+    const e0 = energy(s);
+    const ias = new IAS15();
+    ias.init(s, { dt: T / 100, epsTol: 1e-9, counters: createCounters() });
+    for (let n = 0; n < 3000; n++) ias.step(s);
+    expect(Math.abs(energy(s) - e0) / Math.abs(e0)).toBeLessThan(1e-13);
+  });
+});

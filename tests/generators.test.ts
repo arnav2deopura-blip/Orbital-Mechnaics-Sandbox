@@ -484,3 +484,63 @@ describe('the preset list', () => {
     }
   });
 });
+
+describe('trojan inclination', () => {
+  const G = 4 * Math.PI ** 2;
+  /** Semi-major axis of the Trojan about the Sun, from vis-viva. */
+  const semiMajor = (inclination: number): { a: number; r: number; speed: number } => {
+    const s = stateOf(trojan({ offset: 10, inclination }), G);
+    const r = Math.hypot(s.x[6] - s.x[0], s.x[7] - s.x[1], s.x[8] - s.x[2]);
+    const v2 = (s.v[6] - s.v[0]) ** 2 + (s.v[7] - s.v[1]) ** 2 + (s.v[8] - s.v[2]) ** 2;
+    return { a: 1 / (2 / r - v2 / (G * s.m[0])), r, speed: Math.sqrt(v2) };
+  };
+
+  it('turns the velocity out of the plane, so the orbit stays the same size at every inclination', () => {
+    const flat = semiMajor(0);
+    for (const inclination of [5, 8, 15, 30, 60, 90]) {
+      const tilted = semiMajor(inclination);
+      expect(tilted.speed).toBeCloseTo(flat.speed, 9);
+      expect(tilted.a).toBeCloseTo(flat.a, 9);
+    }
+  });
+
+  it('puts sin(i) of the speed, relative to the Sun, out of the plane and cos(i) in it', () => {
+    const relative = (inclination: number): number[] => {
+      const s = stateOf(trojan({ offset: 10, inclination }), G);
+      return [s.v[6] - s.v[0], s.v[7] - s.v[1], s.v[8] - s.v[2]];
+    };
+    const flat = relative(0);
+    const tilted = relative(30);
+    const inPlane = Math.hypot(flat[0], flat[1]);
+    expect(Math.hypot(tilted[0], tilted[1])).toBeCloseTo(inPlane * Math.cos(Math.PI / 6), 9);
+    expect(tilted[2]).toBeCloseTo(inPlane * Math.sin(Math.PI / 6), 9);
+  });
+});
+
+describe('resolveParams keeps a preset in the range of its sliders', () => {
+  const everyParam = PRESETS.flatMap((preset) => (preset.params ?? []).map((spec) => ({ preset, spec })));
+
+  it('pulls an override back to the slider range, and ignores one that is not a number', () => {
+    for (const { preset, spec } of everyParam) {
+      const span = spec.max - spec.min;
+      const get = (value: number): number => resolveParams(preset, { [spec.key]: value })[spec.key];
+      expect(get(spec.max + span), `${preset.id}.${spec.key} above`).toBe(spec.max);
+      expect(get(spec.min - span), `${preset.id}.${spec.key} below`).toBe(spec.min);
+      expect(get(1e308), `${preset.id}.${spec.key} huge`).toBe(spec.max);
+      expect(get(-1e308), `${preset.id}.${spec.key} hugely negative`).toBe(spec.min);
+      for (const bad of [NaN, Infinity, -Infinity]) expect(get(bad), `${preset.id}.${spec.key} ${bad}`).toBe(spec.value);
+      const inside = spec.min + 0.5 * span;
+      expect(get(inside)).toBe(inside);
+    }
+  });
+
+  it('never makes a state with a non-finite number, whatever the override', () => {
+    for (const { preset, spec } of everyParam) {
+      const span = spec.max - spec.min;
+      for (const value of [spec.min - span, spec.max + span, 0, -1, 1e6, 1e308, -1e308, NaN]) {
+        const state = instantiate(preset, { [spec.key]: value }).state;
+        expect([...state.m, ...state.x, ...state.v].every(Number.isFinite), `${preset.id}.${spec.key}=${value}`).toBe(true);
+      }
+    }
+  });
+});

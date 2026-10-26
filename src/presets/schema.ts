@@ -92,10 +92,18 @@ export function bodyCountOf(preset: Preset): BodyCount {
   return preset.bodyCount ?? 3;
 }
 
-/** The defaults of the preset's sliders, overlaid with `overrides`. */
+/**
+ * The defaults of the preset's sliders, overlaid with `overrides`. An override outside its slider's
+ * range is pulled back to the range, and one that is not a number is ignored: the generators assume
+ * their own sliders' ranges (an eccentricity of 1.5 or a negative mass has no orbit), and the values
+ * can arrive from a hand-edited link.
+ */
 export function resolveParams(preset: Preset, overrides: ParamValues = {}): ParamValues {
   const out: ParamValues = {};
-  for (const spec of preset.params ?? []) out[spec.key] = overrides[spec.key] ?? spec.value;
+  for (const spec of preset.params ?? []) {
+    const value = overrides[spec.key];
+    out[spec.key] = typeof value === 'number' && Number.isFinite(value) ? Math.min(Math.max(value, spec.min), spec.max) : spec.value;
+  }
   return out;
 }
 
