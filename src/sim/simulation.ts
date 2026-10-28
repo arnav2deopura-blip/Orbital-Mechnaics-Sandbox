@@ -389,11 +389,14 @@ export class Simulation {
   }
 }
 
-/** False if any position or velocity is NaN or infinite. One check for all 18 numbers. */
+/**
+ * False if any position or velocity is NaN or infinite. One check for all 18 numbers: each is
+ * multiplied by zero (0 for a finite one, NaN otherwise), so large values cannot overflow the sum.
+ */
 function isFiniteState(s: SystemState): boolean {
   let sum = 0;
-  for (let i = 0; i < STATE_LEN; i++) sum += s.x[i] + s.v[i];
-  return Number.isFinite(sum);
+  for (let i = 0; i < STATE_LEN; i++) sum += s.x[i] * 0 + s.v[i] * 0;
+  return sum === 0;
 }
 
 /** Cubic Hermite from a to b at the fraction h in (0, 1); the velocity is the derivative of the position. */

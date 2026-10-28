@@ -254,6 +254,25 @@ describe('hostile links', () => {
   });
 });
 
+describe('step limits in a link', () => {
+  it('never leaves the minimum step above the maximum', () => {
+    const { controller, view } = make();
+    applyState(controller, view, decodeShare('#preset=kepler-orbit&integrator=ias15&dtMin=0.1&dtMax=0.01')!);
+    const { dtMin, dtMax } = controller.sim.params;
+    expect(dtMax).toBe(0.01);
+    expect(dtMin).toBeLessThanOrEqual(dtMax!);
+    expect(controller.sim.advanceTo(0.5, Infinity).status).toBe('reached');
+    expect(controller.sim.warning).toBeNull();
+  });
+
+  it('keeps a consistent pair as written', () => {
+    const { controller, view } = make();
+    applyState(controller, view, decodeShare('#preset=kepler-orbit&dtMin=0.001&dtMax=0.05')!);
+    expect(controller.sim.params.dtMin).toBe(0.001);
+    expect(controller.sim.params.dtMax).toBe(0.05);
+  });
+});
+
 describe('RunLinks: Back and Forward to a link the simulator is already showing', () => {
   it('applies a link it has not shown, and does not restart the run for one it is showing', () => {
     const links = new RunLinks();

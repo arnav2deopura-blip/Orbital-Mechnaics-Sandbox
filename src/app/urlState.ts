@@ -256,9 +256,10 @@ export function applyState(controller: Controller, view: ShareView, state: Share
   const { sim } = controller;
 
   if (state.dt !== undefined) controller.setDt(state.dt);
-  if (state.epsTol !== undefined) sim.params.epsTol = state.epsTol;
-  if (state.dtMin !== undefined) sim.params.dtMin = state.dtMin;
-  if (state.dtMax !== undefined) sim.params.dtMax = state.dtMax;
+  if (state.epsTol !== undefined) controller.setEpsTol(state.epsTol);
+  // The maximum first: a minimum written above it is held at it, as the two never cross.
+  if (state.dtMax !== undefined) controller.setStepLimit('dtMax', state.dtMax);
+  if (state.dtMin !== undefined) controller.setStepLimit('dtMin', state.dtMin);
   if (state.centralBody !== undefined) sim.params.centralBody = state.centralBody;
   if (state.integrator !== undefined) {
     const symplectic = state.integrator === 'symplectic-euler';

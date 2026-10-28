@@ -227,6 +227,18 @@ describe('IAS15 step control', () => {
     expect(Number.isFinite(s.x[0])).toBe(true);
   });
 
+  it('never takes a step below dtMin or above dtMax when the two are set the wrong way round', () => {
+    const { s, T } = kepler(0.5, 1);
+    const lo = T / 50;
+    const hi = T / 500; // a maximum below the minimum: the minimum wins, as the larger of the two
+    const seen: number[] = [];
+    runUntil(s, T, { dt: T / 100, dtMin: lo, dtMax: hi }, (dt) => {
+      seen.push(Math.abs(dt));
+    });
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(lo * (1 - 1e-12));
+    expect(Math.max(...seen)).toBeLessThanOrEqual(lo * (1 + 1e-12));
+  });
+
   it('stays at 2-4 corrector sweeps per step at the default tolerance (plan: typically 2-3)', () => {
     const { s, T } = kepler(0.5, 1);
     const { counters, steps } = runUntil(s, 20 * T, { dt: T / 100 });
@@ -307,6 +319,32 @@ describe('IAS15 on the Pythagorean problem (close encounters)', () => {
     const mu = s.m[1] + s.m[2];
     const binaryEnergy = 0.5 * (dv[0] ** 2 + dv[1] ** 2 + dv[2] ** 2) - mu / Math.hypot(...dx);
     expect(binaryEnergy).toBeLessThan(0);
+  });
+});
+
+describe('IAS15 and roundoff noise far from the origin', () => {
+  it('does not stall on the Pythagorean problem\'s final binary (t = 85 to 90)', () => {
+    const s = pythagorean();
+    const E0 = energy(s);
+    const ias = new IAS15();
+    ias.init(s, { dt: 1e-3, counters: createCounters() });
+    const step = (): void => {
+      if (ias.step(s) === 0) throw new Error(`stalled at t = ${s.t}`);
+    };
+    let steps = 0;
+    while (s.t < 85) {
+      step();
+      steps++;
+    }
+    const before = steps;
+    while (s.t < 90 && steps - before < 100_000) {
+      step();
+      steps++;
+    }
+    // Reading the roundoff of the tight binary as truncation error made dt collapse: over 400,000 steps for these five time units.
+    expect(s.t).toBeGreaterThanOrEqual(90);
+    expect(steps - before).toBeLessThan(20_000);
+    expect(Math.abs((energy(s) - E0) / E0)).toBeLessThan(1e-8);
   });
 });
 

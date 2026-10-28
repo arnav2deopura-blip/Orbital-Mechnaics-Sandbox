@@ -27,6 +27,17 @@ const DEFAULT_EPS_TOL = 1e-9;
 /** Shrink factor when the error estimate is not a number (the step blew up). */
 const BLOWUP_FACTOR = 0.125;
 const MAX_REJECTS = 50;
+/**
+ * Roundoff in the accelerations, which the 7th divided difference b6 amplifies by about this much
+ * (its noise is about 2e-13 of the acceleration for a Kepler orbit near the origin: 1000 machine epsilons).
+ */
+const NOISE_AMPLIFICATION = 1000;
+/**
+ * The noise floor is taken off the error estimate only when it is a real part of the tolerance:
+ * above this fraction of epsTol. Below it the estimate is already as good as the arithmetic allows
+ * and is left exactly as it was, so ordinary orbits step as they always did.
+ */
+const NOISE_MATTERS = 0.05;
 
 /** Integrating a(h) = a0 + sum b_k h^(k+1) once gives b_k / (k + 2), twice b_k / ((k + 2)(k + 3)). */
 const VEL = Float64Array.from({ length: NODES }, (_, k) => 1 / (k + 2));
@@ -79,12 +90,15 @@ for (let j = 0; j <= NODES; j++) {
  * 1e-13 and below the estimate is mostly noise and dt collapses toward zero. The plan's slider
  * floor of 1e-12 is the right limit; dtMin is the safety net.
  *
- * Known limit of this (original, global) error criterion: a tight pair far from the origin
- * carries roundoff noise in its accelerations, about one ulp of its position relative to its
- * separation, and b6 reads that as truncation error. Shrinking dt does not shrink the noise, so
- * dt collapses. The Pythagorean problem's final 4-5 binary at t ~ 87 needs 311,681 steps from
- * t = 85 to 89 as is, but 1,559 with the binary recentered on the origin. dtMin bounds the cost,
- * and the newer criterion of Pham, Rein & Spiegel 2024 (plan §4.5, v2) is the real fix.
+ * A tight pair far from the origin carries roundoff noise in its accelerations, about one ulp of
+ * its position relative to its separation, and the original (global) error criterion reads b6 of
+ * that noise as truncation error. Shrinking dt does not shrink the noise, so dt collapses: the
+ * Pythagorean problem's final 4-5 binary at t ~ 87 needed over 400,000 steps from t = 85 to 90, but
+ * 1,559 with the binary recentered on the origin. So the noise expected in b6 (roundoff of each
+ * pair's acceleration, from the sizes of the positions and the separations) is taken off the
+ * estimate, but only when it is a real part of epsTol (NOISE_MATTERS), which leaves every
+ * orbit near the origin exactly as it was. dtMin still bounds the cost, and the newer criterion
+ * of Pham, Rein & Spiegel 2024 would be the fuller fix.
  */
 export class IAS15 implements Integrator {
   readonly id = 'ias15';
@@ -104,6 +118,8 @@ export class IAS15 implements Integrator {
 
   private params!: IntegratorParams; // set by init()
   private dir: 1 | -1 = 1;
+  /** Roundoff in the start-of-step accelerations, the same absolute size as `a`; see roundoffNoise(). */
+  private noise = 0;
 
   /** Acceleration at the start of the step (and, after it, of the step just taken, for dense()). */
   private a0 = new Float64Array(0);
@@ -149,9 +165,10 @@ export class IAS15 implements Integrator {
     const p = this.params;
     const epsTol = p.epsTol ?? DEFAULT_EPS_TOL;
     const dtMin = p.dtMin ?? 0;
-    const dtMax = p.dtMax ?? Infinity;
+    const dtMax = Math.max(p.dtMax ?? Infinity, dtMin); // a maximum below the minimum would pin every step under it
 
     computeAccel(s, s.x, this.a0, p.counters); // once per step, reused if the step is redone
+    this.noise = roundoffNoise(s);
     let size = 0;
     for (let i = 0; i < STATE_LEN; i++) size += Math.abs(this.a0[i]);
     if (!(size < Infinity)) return this.fail(); // the state itself is already NaN or infinite
@@ -287,7 +304,12 @@ export class IAS15 implements Integrator {
       const mag = Math.abs(b[6 * STATE_LEN + i]);
       if (mag > maxb6) maxb6 = mag;
     }
-    return maxa > 0 ? maxb6 / maxa : 0;
+    if (!(maxa > 0)) return 0;
+    const error = maxb6 / maxa;
+    const noise = this.noise / maxa;
+    const epsTol = this.params.epsTol ?? DEFAULT_EPS_TOL;
+    // The part of b6 that is roundoff says nothing about the step: only what rises above it does.
+    return noise > NOISE_MATTERS * epsTol ? Math.max(error - noise, 0) : error;
   }
 
   /** Takes the step: x and v advanced by the integrated polynomial with Kahan summation. */
@@ -356,4 +378,40 @@ export class IAS15 implements Integrator {
       }
     }
   }
+}
+
+/**
+ * The roundoff expected in the accelerations of s, times what b6 amplifies it by: for each body, the
+ * sum over the others of the pull from that body, times the relative error of the separation (a
+ * rounding error of the size of the positions, over the separation), and the worst body. Zero for
+ * a system near the origin with no pair much closer than its distance from it.
+ */
+function roundoffNoise(s: SystemState): number {
+  const { x, m, n, G, eps2 } = s;
+  let worst = 0;
+  // Math.sqrt of sums, not Math.hypot: this runs every step, and hypot allocates.
+  for (let i = 0; i < n; i++) {
+    const xi = x[3 * i];
+    const yi = x[3 * i + 1];
+    const zi = x[3 * i + 2];
+    const ri = Math.sqrt(xi * xi + yi * yi + zi * zi);
+    let sum = 0;
+    for (let j = 0; j < n; j++) {
+      if (j === i) continue;
+      const xj = x[3 * j];
+      const yj = x[3 * j + 1];
+      const zj = x[3 * j + 2];
+      const dx = xj - xi;
+      const dy = yj - yi;
+      const dz = zj - zi;
+      const r2 = dx * dx + dy * dy + dz * dz;
+      if (!(r2 > 0)) continue;
+      const r = Math.sqrt(r2);
+      const soft = r2 + eps2;
+      const pull = (G * m[j] * r) / (soft * Math.sqrt(soft));
+      sum += (pull * (ri + Math.sqrt(xj * xj + yj * yj + zj * zj))) / r;
+    }
+    if (sum > worst) worst = sum;
+  }
+  return NOISE_AMPLIFICATION * Number.EPSILON * worst;
 }

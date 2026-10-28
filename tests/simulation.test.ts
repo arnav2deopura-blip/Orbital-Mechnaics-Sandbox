@@ -222,6 +222,33 @@ describe('failure', () => {
     expect(sim.advanceTo(0.2, FOREVER).status).toBe('reached');
   });
 
+  it('does not call a state failed because its numbers are large: only NaN and infinity are', () => {
+    const { sim } = leapfrogSim();
+    sim.integrator = {
+      id: 'euler',
+      order: 1,
+      symplectic: false,
+      adaptive: false,
+      forceEvalsPerStep: 1,
+      init() {},
+      step(s) {
+        s.t += 0.1;
+        return 0.1;
+      },
+      reset() {},
+      setDirection() {},
+    };
+    // Each coordinate is finite, but their sum is not.
+    sim.state.x[0] = 1e308;
+    sim.state.x[3] = 1e308;
+    sim.state.v[1] = 1e308;
+    sim.state.v[4] = 1e308;
+    expect(sim.advanceTo(0.3, FOREVER).status).toBe('reached');
+    expect(sim.failure).toBeNull();
+    sim.state.x[4] = Infinity;
+    expect(sim.advanceTo(1, FOREVER).status).toBe('failed');
+  });
+
   it('treats an adaptive method that cannot step (IAS15 on a NaN state) as a failure', () => {
     const s = kepler().s;
     s.x[0] = NaN;
