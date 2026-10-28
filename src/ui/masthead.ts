@@ -42,7 +42,7 @@ export function createMasthead(shell: Shell, charts: Charts): Masthead {
 
   const brand = el('a', 'brand');
   brand.href = SIM_HREF;
-  brand.innerHTML = '<span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="brand-name">Three-body sandbox</span>';
+  brand.innerHTML = '<span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="brand-name">Orbital Mechanics Sandbox</span>';
 
   const nav = el('nav', 'pages');
   nav.setAttribute('aria-label', 'Pages');

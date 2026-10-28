@@ -22,7 +22,7 @@ The numerics are checked, not decorative: presets are marked verified only when 
 - Module names are Title Case ("Bodies & Physics"); their descriptions are sentence case.
 
 ## Brand Commitments
-Name: Three-body sandbox. The look was set by the user's brief for this redesign: asymmetric editorial layout, structural typography, a limited palette with one strict accent, 1px rules instead of cards, and none of: floating cards, glassmorphism, heavy shadows, purple or blue neon gradients, gradient text, centered hero sections, 3-column icon grids, generic footers, floating decorative shapes. The palette is dark graphite (the user chose "dark instrument").
+Name: Orbital Mechanics Sandbox. The look was set by the user's brief for this redesign: asymmetric editorial layout, structural typography, a limited palette with one strict accent, 1px rules instead of cards, and none of: floating cards, glassmorphism, heavy shadows, purple or blue neon gradients, gradient text, centered hero sections, 3-column icon grids, generic footers, floating decorative shapes. The palette is dark graphite (the user chose "dark instrument").
 
 ## Evidence on Hand
 The test suite (golden REBOUND reference numbers, preset verification, per-method order checks) and the Learn page content in `src/learn/content`. No testimonials, users or benchmarks exist; none should be invented.

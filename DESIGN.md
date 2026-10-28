@@ -1,5 +1,5 @@
 ---
-name: Three-body sandbox
+name: Orbital Mechanics Sandbox
 description: A scientific instrument sheet in graphite and warm white, with one vermilion accent.
 colors:
   plate: "#060607"
@@ -65,7 +65,7 @@ components:
     height: 24px
 ---
 
-# Design System: Three-body sandbox
+# Design System: Orbital Mechanics Sandbox
 
 ## Overview
 

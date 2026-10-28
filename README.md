@@ -1,4 +1,4 @@
-# Three-body integrator explorer
+# Orbital Mechanics Sandbox
 
 **Live site: <https://arnav2deopura-blip.github.io/Orbital-Mechnaics-Sandbox/>** (best viewed on a desktop browser)
 

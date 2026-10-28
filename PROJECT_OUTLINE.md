@@ -1,11 +1,11 @@
-# Three-Body Sandbox — Complete Project Outline
+# Orbital Mechanics Sandbox — Complete Project Outline
 
 A full description of what this interactive web application does, how it behaves, and how it is built.
 It was written from a read of every source file, the Learn-page content, the design/product documents,
 the tests and tools, and a live run of the app in a browser. It is **not** a summary: it aims to list
 every page, control, setting, preset, method, warning, chart, file and limit in the project.
 
-> Project folder: `Numerical Integrator Sandbox/` · package name `three-body-integrator` · UI name **"Three-body sandbox"**
+> Project folder: `Numerical Integrator Sandbox/` · package name `three-body-integrator` · UI name **"Orbital Mechanics Sandbox"** (renamed from "Three-body sandbox")
 
 ---
 
@@ -125,7 +125,7 @@ Behaviours:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ Masthead: ◦ Three-body sandbox │ Simulator │ Learn │            [Layout ▾] │
+│ Masthead: ◦ Orbital Mechanics Sandbox │ Simulator │ Learn │            [Layout ▾] │
 ├────────────────────────────────────────────────────────────────────────────┤
 │ Instrument bar: Bodies 2|3 · Preset ▾ · ⏸ ⏭ ↺ · Speed ──── · Method ▾ │ Charts │ Modules │
 ├──────────────────────────────────────────────┬─┬───────────────────────────┤
@@ -140,7 +140,7 @@ Behaviours:
 ```
 
 ### 4.1 Masthead (44 px, same on both pages)
-- Brand mark (three small dots in the three body colors) + the name **"Three-body sandbox"**, which links to the simulator.
+- Brand mark (three small dots in the three body colors) + the name **"Orbital Mechanics Sandbox"**, which links to the simulator.
 - Page tabs **Simulator** and **Learn** (flat tabs; the open one has a 2 px vermilion underline and `aria-current="page"`).
 - On the simulator only: a **Layout** menu button at the far right ([§7](#7-layout-menu-arrangements-and-remembered-preferences)).
 

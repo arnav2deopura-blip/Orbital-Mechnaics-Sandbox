@@ -69,9 +69,9 @@ export function exportModule(controller: Controller): ModuleSpec {
         'How many points each chart takes per T_char of simulated time. Applies from now on.',
       );
       pane.addButton({ title: 'Clear history' }).on('click', () => controller.restartHistory());
-      pane.addButton({ title: 'Download diagnostics CSV' }).on('click', () => downloadText('three-body-diagnostics.csv', controller.sampler.toCsv()));
+      pane.addButton({ title: 'Download diagnostics CSV' }).on('click', () => downloadText('orbital-diagnostics.csv', controller.sampler.toCsv()));
       const trajectory = pane.addButton({ title: 'Download trajectory CSV' });
-      trajectory.on('click', () => downloadText('three-body-trajectory.csv', controller.sampler.toTrajectoryCsv()));
+      trajectory.on('click', () => downloadText('orbital-trajectory.csv', controller.sampler.toTrajectoryCsv()));
       setTitle(trajectory, 'The positions of the bodies at each chart sample, as CSV.');
       return () => pane.refresh();
     },
