@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local assistant / editor tool config
+.agents/
+.claude/
+.codex/
+.cursor/
