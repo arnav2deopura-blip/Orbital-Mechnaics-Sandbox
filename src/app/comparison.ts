@@ -65,6 +65,9 @@ export class Comparison {
    */
   measure(source: Simulation, drawn: SystemState, drawnTwin: SystemState): number {
     const sameTime = source.state.t === this.sim.state.t;
+    // Drawn at different times (the frame budget ran out for one of them): the gap between the two
+    // would be the distance the bodies travel in that time, not a divergence. Keep the last value.
+    if (!sameTime && Math.abs(drawn.t - drawnTwin.t) > 1e-9 * Math.max(1, Math.abs(drawn.t))) return this.divergence;
     const a = sameTime ? source.state.x : drawn.x;
     const b = sameTime ? this.sim.state.x : drawnTwin.x;
     let worst = 0;

@@ -298,6 +298,42 @@ export function applyState(controller: Controller, view: ShareView, state: Share
   return true;
 }
 
+/**
+ * Which run link the simulator is showing: what the address bar held when a link was last applied,
+ * or last written by the Share button. Back or Forward onto that same link (from the Learn page, say)
+ * is not a new run, so it must not restart this one.
+ */
+export class RunLinks {
+  private shown: string | null = null;
+
+  /** Records the link the simulator is now showing. */
+  note(hash: string): void {
+    this.shown = hash;
+  }
+
+  /** Whether the simulator should load `hash`: unless it is the one it shows, which a click on a Learn page "Try it" link still wants fresh. */
+  shouldApply(hash: string, clickedTryIt = false): boolean {
+    return clickedTryIt || hash !== this.shown;
+  }
+}
+
+/** The one the page uses (main.ts reads it, and the Share button writes to it). */
+export const runLinks = new RunLinks();
+
+/**
+ * What is wrong with a run link, in words, or null when it is fine or is not a run link at all (an
+ * empty hash, a page address, some other anchor). A link that cannot be used is otherwise ignored
+ * without a word.
+ */
+export function linkProblem(hash: string): string | null {
+  const text = hash.startsWith('#') ? hash.slice(1) : hash;
+  if (!text.startsWith(MAGIC) && !/(^|&)preset=/.test(text)) return null;
+  const state = decodeShare(hash);
+  if (state === null) return 'The link is damaged or incomplete, so it was ignored.';
+  if (!findPreset(state.preset)) return `The link names a preset (${state.preset}) that this version does not have, so it was ignored.`;
+  return null;
+}
+
 /** The full URL that opens the page with `state`. */
 export function shareUrl(state: ShareState, base: string): string {
   return `${base.split('#')[0]}#${encodeShare(state)}`;

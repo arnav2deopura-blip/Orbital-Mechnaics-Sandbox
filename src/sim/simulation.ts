@@ -76,6 +76,11 @@ export class Simulation {
   /** The latest encounter, or null. Cleared by load() and reset(). */
   encounter: string | null = null;
   /**
+   * Why the run last stopped itself (a close encounter it was asked to stop at, or an integrator
+   * event), or null. Cleared by load(), reset() and setIntegrator(), and by whoever plays on.
+   */
+  stopReason: string | null = null;
+  /**
    * What the integrator reports about its own health (plan §7.5): IAS15 reaching its minimum
    * step or failing to converge, WH's Kepler solver failing. Null when all is well. Cleared by
    * load(), reset() and setIntegrator().
@@ -150,6 +155,7 @@ export class Simulation {
     next.setDirection(this.dir);
     this.integrator = next;
     this.failure = null;
+    this.stopReason = null;
     this.resetHealth();
     this.rebase();
   }
@@ -304,7 +310,10 @@ export class Simulation {
       this.inEncounter = true;
       this.encounter = `close encounter at t=${this.state.t.toPrecision(6)}, separation ${Math.sqrt(r2).toPrecision(3)}`;
       this.onEvent?.('close encounter');
-      if (this.stopOnEncounter) this.stopRequested = true;
+      if (this.stopOnEncounter) {
+        this.stopRequested = true;
+        this.stopReason = this.encounter;
+      }
     } else if (r2 > 1.44 * radius * radius) {
       this.inEncounter = false;
     }
@@ -340,7 +349,10 @@ export class Simulation {
 
   private raise(message: string, stop: boolean): void {
     this.onEvent?.(message);
-    if (stop) this.stopRequested = true;
+    if (stop) {
+      this.stopRequested = true;
+      this.stopReason = message;
+    }
   }
 
   private resetHealth(): void {
@@ -356,6 +368,7 @@ export class Simulation {
     this.integrator.setDirection(this.dir);
     this.failure = null;
     this.encounter = null;
+    this.stopReason = null;
     this.inEncounter = false;
     this.stopRequested = false;
     this.resetHealth();

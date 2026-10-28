@@ -110,3 +110,17 @@ describe('a method that cannot run the system', () => {
     expect(c.issues.some((i) => i.title === "Can't switch to that method")).toBe(true);
   });
 });
+
+describe('a method switch and the warnings', () => {
+  it('starts a new run for the banner, so a warning dismissed under one method comes back under the next', () => {
+    const c = make('figure-eight');
+    const before = c.runId;
+    c.setIntegrator('rk4');
+    expect(c.runId).toBe(before + 1);
+    const refused = make('figure-eight');
+    refused.edit(withMasses(refused, [0, 0, 0]));
+    const id = refused.runId;
+    refused.setIntegrator('wh'); // refused: nothing changed, so nothing restarts
+    expect(refused.runId).toBe(id);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyState, captureState, decodeShare, encodeShare, sanitize, shareUrl } from '../src/app/urlState';
+import { applyState, captureState, decodeShare, encodeShare, linkProblem, RunLinks, sanitize, shareUrl } from '../src/app/urlState';
 import type { ShareState, ShareView } from '../src/app/urlState';
 import { Controller } from '../src/app/controller';
 import type { ViewPort } from '../src/app/controller';
@@ -251,5 +251,53 @@ describe('hostile links', () => {
     const { controller, view } = make();
     expect(() => applyState(controller, view, decodeShare('preset=kepler&massRatio=-1e308') as ShareState)).not.toThrow();
     expect(Number.isFinite(controller.sim.reference.period)).toBe(true);
+  });
+});
+
+describe('RunLinks: Back and Forward to a link the simulator is already showing', () => {
+  it('applies a link it has not shown, and does not restart the run for one it is showing', () => {
+    const links = new RunLinks();
+    expect(links.shouldApply('#preset=lagrange')).toBe(true); // at load
+    links.note('#preset=lagrange');
+    expect(links.shouldApply('#preset=lagrange')).toBe(false); // Back from the Learn page onto it: the run holds
+    expect(links.shouldApply('#preset=euler')).toBe(true); // a different link, pasted or navigated to
+  });
+
+  it('applies the same link again when a Try-it link on the Learn page was clicked, so it gives a fresh run', () => {
+    const links = new RunLinks();
+    links.note('#preset=lagrange');
+    expect(links.shouldApply('#preset=lagrange', true)).toBe(true);
+  });
+
+  it('counts a link that Share wrote as shown', () => {
+    const links = new RunLinks();
+    const { controller, view } = make();
+    const url = shareUrl(captureState(controller, view), 'https://example.org/app/');
+    links.note(url.slice(url.indexOf('#')));
+    expect(links.shouldApply(url.slice(url.indexOf('#')))).toBe(false);
+  });
+});
+
+describe('linkProblem and announce: a link that cannot be used says so', () => {
+  it('is null for no link, a page address, another anchor, and a good link', () => {
+    for (const hash of ['', '#', '#/learn/chaos', '#some-anchor', '#preset=lagrange&mass=40', '#' + encodeShare({ preset: 'lagrange' })]) {
+      expect(linkProblem(hash), hash).toBeNull();
+    }
+  });
+
+  it('describes a damaged link and a preset this version does not have', () => {
+    expect(linkProblem('#s=!!!not-base64')).toMatch(/damaged|incomplete/);
+    expect(linkProblem('#preset=')).toMatch(/damaged|incomplete/);
+    expect(linkProblem('#preset=no-such-preset')).toMatch(/no-such-preset/);
+    expect(linkProblem('#' + encodeShare({ preset: 'gone' }))).toMatch(/gone/);
+  });
+
+  it('is shown on the warnings banner, and does not change the run', () => {
+    const { controller } = make();
+    const before = controller.runId;
+    controller.announce('warning', 'That link could not be opened', 'The link is damaged.');
+    expect(controller.issues.find((i) => i.title === 'That link could not be opened')?.detail).toBe('The link is damaged.');
+    expect(controller.runId).toBe(before);
+    expect(controller.issues.find((i) => i.title === 'That link could not be opened')?.learn).toBeUndefined();
   });
 });

@@ -11,9 +11,9 @@ export type Severity = 'info' | 'warning' | 'danger';
 /**
  * What a warning can offer to do. 'bind' slows the bodies until the system is bound; 'suggested'
  * loads the preset closest to the user's values; 'defaults' reloads the preset's own values; 'twin'
- * starts a ghost twin, which makes chaos visible.
+ * starts a ghost twin, which makes chaos visible; 'stop-twin' ends a comparison whose twin failed.
  */
-export type Fix = 'bind' | 'ias15' | 'smaller-step' | 'reset' | 'frame' | 'suggested' | 'defaults' | 'twin';
+export type Fix = 'bind' | 'ias15' | 'smaller-step' | 'reset' | 'frame' | 'suggested' | 'defaults' | 'twin' | 'stop-twin';
 
 export interface Issue {
   /** Stable per kind (and body), so a dismissed warning stays dismissed while it lasts. */
@@ -159,6 +159,10 @@ export interface RuntimeInput {
   /** Explicit Euler, whose failure is the lesson. */
   explicitEuler: boolean;
   failure: string | null;
+  /** Why the comparison twin failed, when it has (the first run is fine). */
+  twinFailure?: string | null;
+  /** Why the run paused itself, while it is paused: a close encounter it was asked to stop at, or an integrator event. */
+  stopped?: string | null;
   warning: string | null;
   energyError: number;
   /** Per body (two or three): unbound and beyond the escape radius. */
@@ -221,6 +225,30 @@ export function runtimeIssues(input: RuntimeInput): Issue[] {
       detail: `Energy is off by ${(100 * energyError).toPrecision(2)}%. The run is still going, but its details are no longer reliable.`,
       learn: 'conservation-laws',
       fixes: integrator === 'ias15' ? ['reset'] : ['ias15', 'smaller-step'],
+    });
+  }
+
+  if (input.twinFailure && failure === null) {
+    issues.push({
+      id: 'twin-failed',
+      severity: 'warning',
+      title: 'The comparison twin broke down',
+      detail:
+        `${capitalize(input.twinFailure)}. The run is held while a comparison is open, because the two would no longer be at the same time. ` +
+        'Stop the comparison to carry on with the first run.',
+      learn: 'chaos',
+      fixes: ['stop-twin'],
+    });
+  }
+
+  if (input.stopped && failure === null) {
+    const encounter = input.stopped.startsWith('close encounter');
+    issues.push({
+      id: encounter ? 'encounter' : 'stopped',
+      severity: 'info',
+      title: encounter ? 'Paused at a close encounter' : 'The run stopped itself',
+      detail: `${capitalize(input.stopped)}. The run paused here, as it was set to. Press Play to go on.`,
+      fixes: [],
     });
   }
 

@@ -335,6 +335,40 @@ describe('Controller: turning, nudging and settings', () => {
   });
 });
 
+describe('Controller: edits keep what they do not change', () => {
+  it("keeps a preset's declared period through a rotate, a nudge and a change of G, as it is the same system", () => {
+    const { controller } = setup();
+    const period = FIGURE_EIGHT.period!;
+    expect(controller.sim.reference.period).toBeCloseTo(period, 9);
+    controller.rotate('x', 30);
+    expect(controller.sim.reference.period).toBeCloseTo(period, 9);
+    controller.nudge({ body: 0, target: 'position', direction: 'x', size: 1e-3 });
+    expect(controller.sim.reference.period).toBeCloseTo(period, 9);
+    controller.setG(4); // time scales as 1/sqrt(G)
+    expect(controller.sim.reference.period).toBeCloseTo(period / 2, 9);
+  });
+
+  it('measures the period afresh when the body editor changes the masses or positions', () => {
+    const { controller } = setup();
+    const next = snapshot(controller.sim.state);
+    next.m.set([2, 2, 2]);
+    controller.edit(next);
+    expect(controller.sim.reference.period).not.toBeCloseTo(FIGURE_EIGHT.period!, 3);
+  });
+
+  it('reframes the view when an edit changes the size of the system a great deal, but not for a nudge', () => {
+    const { controller, view } = setup();
+    const scales = view.scales.length;
+    controller.nudge({ body: 0, target: 'position', direction: 'x', size: 1e-3 });
+    expect(view.scales.length).toBe(scales);
+    const next = snapshot(controller.sim.state);
+    for (let i = 0; i < next.x.length; i++) next.x[i] *= 0.01;
+    controller.edit(next, false);
+    expect(view.scales.length).toBe(scales + 1);
+    expect(view.scales[scales]).toBeCloseTo(controller.sim.reference.size, 12);
+  });
+});
+
 describe('Controller: events', () => {
   it('reports an encounter in the status, and pauses there if asked', () => {
     const { controller, view } = setup();
@@ -342,6 +376,19 @@ describe('Controller: events', () => {
     run(view, 6);
     expect(controller.readout.status).toMatch(/close encounter/);
     expect(controller.loop.settings.running).toBe(false);
+  });
+
+  it('says on the banner why it paused at a close encounter, and not once it is playing again', () => {
+    const { controller, view } = setup();
+    controller.setEncounter(0.9, true);
+    run(view, 6);
+    expect(controller.loop.settings.running).toBe(false);
+    const issue = controller.issues.find((i) => i.id === 'encounter');
+    expect(issue?.title).toMatch(/close encounter/i);
+    expect(issue?.detail).toMatch(/separation/);
+    controller.play();
+    run(view, 0.2);
+    expect(controller.issues.map((i) => i.id)).not.toContain('encounter');
   });
 
   it('forgets the radius when another preset is loaded', () => {

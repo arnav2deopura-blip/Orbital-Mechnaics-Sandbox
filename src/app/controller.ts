@@ -159,6 +159,8 @@ export class Controller {
   private horizonMarked = false;
   private returnMessage = '';
   private samplesPerPeriod = DEFAULT_SAMPLES_PER_PERIOD;
+  /** The size of the system the view was last framed on: an edit that changes it a great deal reframes. */
+  private framedSize = 0;
 
   constructor(view: ViewPort, preset: Preset, options: LoadPresetOptions = {}, clock?: () => number) {
     this.view = view;
@@ -179,6 +181,11 @@ export class Controller {
   /** How many bodies the system has now: 2 or 3. */
   get bodyCount(): BodyCount {
     return this.sim.state.n;
+  }
+
+  /** The first run, or the comparison twin, has failed: the run cannot go on as it is. */
+  get failed(): boolean {
+    return this.sim.failure !== null || !!this.comparison?.sim.failure;
   }
 
   /** Called after a load that changed the number of bodies, once everything is consistent again. */
@@ -242,6 +249,7 @@ export class Controller {
     this.view.clearTrails();
     this.view.setCameraMode(recommended.camera?.focus ?? 'com');
     this.view.setSystemScale(instance.size ?? recommended.camera?.size ?? systemSize(sim.state));
+    this.framedSize = sim.reference.size;
     const defaults = instantiate(preset).params;
     this.custom = Object.keys(defaults).some((key) => defaults[key] !== this.params[key]);
     this.readDraft();
@@ -261,7 +269,10 @@ export class Controller {
   }
 
   play(): void {
+    // A failed twin holds the run (the loop would only freeze its clock): the banner offers to stop the comparison.
+    if (this.comparison?.sim.failure) return;
     this.returnMessage = '';
+    this.sim.stopReason = null;
     this.loop.settings.running = true;
   }
 
@@ -291,7 +302,10 @@ export class Controller {
   }
 
   setDirection(sign: 1 | -1): void {
-    if (sign !== this.sim.direction) this.sampler.mark(sign < 0 ? 'time reversed' : 'time forward');
+    if (sign !== this.sim.direction) {
+      this.sampler.mark(sign < 0 ? 'time reversed' : 'time forward');
+      this.cancelReturn(); // a return runs one way: turning round ends it, it has not arrived
+    }
     this.sim.setDirection(sign);
     this.comparison?.sim.setDirection(sign);
   }
@@ -299,9 +313,10 @@ export class Controller {
   /**
    * The one path for editing the system (plan §4.7): pause (unless told not to), apply, re-center
    * on the COM unless told not to, take new reference values, clear the trails and restart the
-   * integrator. `next` is normally a snapshot of sim.state with some fields changed.
+   * integrator. `next` is normally a snapshot of sim.state with some fields changed. An edit that
+   * leaves the system what it was (a turn, a nudge, G) passes its `period`, so T_char does not jump.
    */
-  edit(next: SystemState, recenter = true, pause = true): void {
+  edit(next: SystemState, recenter = true, pause = true, period?: number): void {
     this.stopComparison();
     if (pause) this.pause();
     this.cancelReturn();
@@ -314,9 +329,15 @@ export class Controller {
         'info',
         'Switched to IAS15',
         `Wisdom-Holman cannot run the system as edited: ${explainRejection(unsupported)}. The run continues with IAS15, which takes any system.`,
+        'wisdom-holman',
       );
     }
-    this.sim.load(next, { recenter });
+    this.sim.load(next, { recenter, period });
+    const size = this.sim.reference.size;
+    if (size > 2 * this.framedSize || size < 0.5 * this.framedSize) {
+      this.view.setSystemScale(size); // scaled up or down a great deal: the bodies and the camera were sized for the old one
+      this.framedSize = size;
+    }
     this.view.clearTrails();
     this.readDraft();
     this.restartHistory();
@@ -353,14 +374,14 @@ export class Controller {
   rotate(axis: Axis, degrees: number): void {
     const next = snapshot(this.sim.state);
     rotateState(next, axis, degrees);
-    this.edit(next, false, false);
+    this.edit(next, false, false, this.sim.reference.period);
   }
 
   /** Nudges one body (plan §7.2), re-centering afterwards if asked, and keeps running. Returns the direction used. */
   nudge(spec: Nudge, recenter = false): [number, number, number] {
     const next = snapshot(this.sim.state);
     const direction = nudgeState(next, spec);
-    this.edit(next, recenter, false);
+    this.edit(next, recenter, false, this.sim.reference.period);
     return direction;
   }
 
@@ -378,9 +399,11 @@ export class Controller {
       if (this.sim.state.eps2 !== 0) this.setSoftening(0);
     }
     this.sim.setIntegrator(id, symplecticEuler);
+    this.dropTwin();
     this.sampler.mark(id === 'euler' && symplecticEuler ? 'symplectic Euler' : id);
     this.notice = null;
     this.pausedFor.clear();
+    this.runId++; // warnings dismissed under the old method come back if the new one has them too
     this.checkStart();
     this.updateReadout();
     return null;
@@ -396,14 +419,20 @@ export class Controller {
     }
   }
 
-  private makeNotice(severity: Issue['severity'], title: string, detail: string): Issue {
-    return { id: `notice-${++this.noticeCount}`, severity, title, detail, learn: 'wisdom-holman', fixes: [] };
+  private makeNotice(severity: Issue['severity'], title: string, detail: string, learn?: string): Issue {
+    return { id: `notice-${++this.noticeCount}`, severity, title, detail, learn, fixes: [] };
+  }
+
+  /** Tells the user, on the warnings banner, something that was not done (a link that could not be used). The run is untouched. */
+  announce(severity: Issue['severity'], title: string, detail: string): void {
+    this.notice = this.makeNotice(severity, title, detail);
+    this.checkHealth();
   }
 
   /** Says why a change of method was not made, on the banner, and returns the same words. */
   private refuse(reason: string): string {
     const detail = `Wisdom-Holman cannot run this system: ${explainRejection(reason)}. The method was not changed.`;
-    this.notice = this.makeNotice('warning', "Can't switch to that method", detail);
+    this.notice = this.makeNotice('warning', "Can't switch to that method", detail, 'wisdom-holman');
     this.checkHealth();
     return detail;
   }
@@ -411,13 +440,38 @@ export class Controller {
   /** The step size of the fixed-step methods, and the first guess of IAS15. Takes effect on the next step. */
   setDt(dt: number): void {
     this.sim.params.dt = dt;
+    this.dropTwin();
     this.checkStart();
+  }
+
+  /** IAS15's tolerance. Takes effect on the next step. */
+  setEpsTol(epsTol: number): void {
+    this.sim.params.epsTol = epsTol;
+    this.dropTwin();
+  }
+
+  /**
+   * IAS15's smallest or largest step (undefined: no limit). The two never cross: a limit set past
+   * the other is held at it, as a minimum above the maximum would pin every step to the minimum.
+   */
+  setStepLimit(key: 'dtMin' | 'dtMax', value: number | undefined): void {
+    const { params } = this.sim;
+    const other = key === 'dtMin' ? params.dtMax : params.dtMin;
+    if (value !== undefined && other !== undefined) value = key === 'dtMin' ? Math.min(value, other) : Math.max(value, other);
+    params[key] = value;
+    this.dropTwin();
+  }
+
+  /** A twin is the same method with a nudge: once the first run's method or step changes it is a different run, so it ends. */
+  private dropTwin(): void {
+    if (this.comparison?.kind === 'twin') this.stopComparison();
   }
 
   /** WH only: the body the others orbit (undefined: the most massive). Restarts WH, which orders the bodies once. */
   setCentralBody(body: 0 | 1 | 2 | undefined): void {
     const before = this.sim.params.centralBody;
     this.sim.params.centralBody = body;
+    if (body !== before) this.dropTwin();
     if (this.sim.integrator.id === 'wh' && this.setIntegrator('wh') !== null) this.sim.params.centralBody = before;
   }
 
@@ -433,9 +487,11 @@ export class Controller {
   /** Changes G. The energy changes with it, so the reference values restart; running and paused are unchanged. */
   setG(G: number): void {
     const next = snapshot(this.sim.state);
+    const before = next.G;
     next.G = G;
     this.custom = true;
-    this.edit(next, false, false);
+    // The same system under another G: time goes as 1/sqrt(G), so T_char does too.
+    this.edit(next, false, false, G > 0 && before > 0 ? this.sim.reference.period * Math.sqrt(before / G) : undefined);
   }
 
   /** The softening length (plan §3.1). Ignored by WH, which has no softening. */
@@ -444,7 +500,7 @@ export class Controller {
     const next = snapshot(this.sim.state);
     next.eps2 = length * length;
     this.custom = true;
-    this.edit(next, false, false);
+    this.edit(next, false, false, this.sim.reference.period);
   }
 
   /**
@@ -712,6 +768,9 @@ export class Controller {
       case 'defaults':
         this.loadPreset(this.preset);
         break;
+      case 'stop-twin':
+        this.stopComparison();
+        break;
       case 'twin':
         // A nudge of a ten-thousandth of the system: about seven e-folds from visible, so it shows within a few tens of orbits rather than minutes.
         this.startComparison({ kind: 'twin', nudge: { body: 0, target: 'position', direction: 'random', size: 1e-4 } });
@@ -723,6 +782,7 @@ export class Controller {
   /** A fresh start (load, edit or reset): warnings dismissed before come back, and may pause again. */
   private newRun(): void {
     this.runId++;
+    this.readout.returnDistance = NaN; // it belonged to the run before
     this.notice = this.nextNotice;
     this.nextNotice = null;
     this.horizonMarked = false;
@@ -749,6 +809,8 @@ export class Controller {
       integrator: sim.integrator.id,
       explicitEuler: sim.integrator.id === 'euler' && !sim.integrator.symplectic,
       failure: sim.failure,
+      twinFailure: this.comparison?.sim.failure ?? null,
+      stopped: this.loop.settings.running ? null : sim.stopReason,
       warning: sim.warning,
       energyError: readout.energyError,
       escaped: bodies.map((k) => hasEscaped(sim.state, k, escape)),

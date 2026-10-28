@@ -1,7 +1,7 @@
 import type { BindingApi } from '@tweakpane/core';
 import type { Controller } from '../../app/controller';
 import { learnHref } from '../../app/router';
-import { captureState, shareUrl } from '../../app/urlState';
+import { captureState, runLinks, shareUrl } from '../../app/urlState';
 import type { Preset } from '../../presets/schema';
 import type { SceneView } from '../../render/scene';
 import type { ModuleSpec } from '../shell';
@@ -56,6 +56,7 @@ export function systemModule(controller: Controller, view: SceneView): ModuleSpe
       share.on('click', () => {
         const url = shareUrl(captureState(controller, view), location.href);
         history.replaceState(null, '', url);
+        runLinks.note(location.hash); // the run on screen is the one this link describes: coming back to it later is not a new run
         if (!navigator.clipboard) {
           link.message = 'link is in the address bar';
           return;

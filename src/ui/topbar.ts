@@ -243,7 +243,7 @@ export function createTopBar(shell: Shell, controller: Controller, charts: Chart
     if (caption.textContent !== text) caption.textContent = text;
 
     const worst = controller.issues[0]?.severity;
-    const failed = sim.failure !== null;
+    const failed = controller.failed;
     status.dataset.tone = failed || worst === 'danger' ? 'danger' : worst === 'warning' ? 'warning' : running ? 'ok' : 'idle';
     status.textContent = failed ? 'Failed' : worst === 'danger' ? 'Problem' : running ? (loop.stats.achieved < 0.95 ? `Running ${Math.round(100 * loop.stats.achieved)}%` : 'Running') : 'Paused';
     status.title = controller.readout.status;

@@ -14,6 +14,8 @@ const STATS_WINDOW = 0.25;
 const COST_SMOOTHING = 0.1;
 const MIN_SHARE = 0.15;
 const MIN_BUDGET_MS = 2;
+/** The most wall time a single Step may spend bringing the twin up to the same time. */
+const STEP_TWIN_BUDGET_MS = 50;
 /** The share of a frame's interval that stepping and drawing together may use. */
 const FRAME_USE = 0.9;
 /** How much each way advanceTo() can end matters: a failure over an event over running out of budget. */
@@ -148,11 +150,11 @@ export class SimLoop {
     return this.rendered;
   }
 
-  /** Pauses and takes one step (plan §7.1); the twin runs on to the same time. */
+  /** Pauses and takes one step (plan §7.1); the twin runs on to the same time, within a budget (the next frame finishes the catching up). */
   stepOnce(): void {
     this.settings.running = false;
     this.sim.step();
-    this.twin?.advanceTo(this.sim.state.t, Infinity);
+    this.twin?.advanceTo(this.sim.state.t, this.clock() + STEP_TWIN_BUDGET_MS);
     this.tTarget = this.sim.state.t;
   }
 }

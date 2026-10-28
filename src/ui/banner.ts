@@ -18,6 +18,7 @@ const FIX_LABELS: Record<Exclude<Fix, 'suggested'>, string> = {
   frame: 'Frame all bodies',
   defaults: "Restore the preset's own values",
   twin: 'Show me: start a ghost twin',
+  'stop-twin': 'Stop the comparison',
 };
 
 export function createBanner(shell: Shell, controller: Controller, prefs: Prefs): () => void {

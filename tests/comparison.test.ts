@@ -11,7 +11,7 @@ import { characteristicTime } from '../src/sim/diagnostics';
 import { createIntegrator } from '../src/sim/integrators';
 import type { Integrator } from '../src/sim/integrators/types';
 import { Simulation } from '../src/sim/simulation';
-import { snapshot } from '../src/sim/state';
+import { createState, snapshot } from '../src/sim/state';
 import type { SystemState } from '../src/sim/types';
 import { kepler, stateError } from './helpers';
 
@@ -24,6 +24,29 @@ function preset(id: string): { sim: Simulation; period: number } {
   const dt = p.recommended.dt ?? period / (p.recommended.integrator === 'ias15' ? 100 : 1000);
   return { sim: new Simulation(state, { integrator: p.recommended.integrator, params: { dt } }), period };
 }
+
+describe('Comparison: divergence at different times', () => {
+  it('keeps the last value when the two runs are drawn at different times, instead of reading a time gap as divergence', () => {
+    const { s, T } = kepler();
+    const sim = new Simulation(s, { integrator: 'leapfrog', params: { dt: T / 1000 } });
+    const cmp = new Comparison(sim, { kind: 'twin', nudge: { body: 0, target: 'position', direction: 'x', size: 1e-9 } });
+    const a = createState();
+    const b = createState();
+    sim.advanceTo(0.5, FOREVER);
+    cmp.sim.advanceTo(0.5, FOREVER);
+    sim.stateAt(0.5, a);
+    cmp.sim.stateAt(0.5, b);
+    const agreed = cmp.measure(sim, a, b);
+    expect(agreed).toBeGreaterThan(0);
+    expect(agreed).toBeLessThan(1e-6);
+
+    // The frame budget ran out for the twin: the first run is drawn later than the twin, by a good fraction of an orbit.
+    sim.advanceTo(0.8, FOREVER);
+    sim.stateAt(0.8, a);
+    cmp.sim.stateAt(0.5, b);
+    expect(cmp.measure(sim, a, b)).toBe(agreed);
+  });
+});
 
 describe('Comparison', () => {
   it('starts from the source state, time and direction, with its own copy', () => {
@@ -209,6 +232,22 @@ describe('SimLoop with a twin', () => {
   });
 });
 
+describe('SimLoop: stepping with a twin', () => {
+  it('gives the twin a budget, so one click cannot hold the page while a much finer twin catches up', () => {
+    const { s, T } = kepler();
+    let now = 0;
+    const clock = (): number => (now += 10); // every reading of the clock costs 10 ms
+    const sim = new Simulation(s, { integrator: 'leapfrog', params: { dt: T / 100 }, clock });
+    const twin = new Comparison(sim, { kind: 'method', integrator: 'leapfrog', dt: T / 50000, clock });
+    const loop = new SimLoop(sim, {}, clock);
+    loop.twin = twin.sim;
+    loop.stepOnce();
+    expect(sim.state.t).toBeCloseTo(T / 100, 12);
+    expect(twin.sim.state.t).toBeGreaterThan(0);
+    expect(twin.sim.state.t).toBeLessThan(sim.state.t); // stopped by the budget; the next frame catches up
+  });
+});
+
 class StubView implements ViewPort {
   clears = 0;
   ghostSamples = 0;
@@ -307,6 +346,59 @@ describe('Controller: comparison', () => {
   });
 });
 
+describe('Controller: a failed twin', () => {
+  const failedTwin = (): { controller: Controller; view: StubView } => {
+    const { controller, view } = setup();
+    controller.startComparison({ kind: 'method', integrator: 'rk4', dt: 0.01 });
+    controller.comparison!.sim.state.x[0] = NaN;
+    controller.comparison!.sim.integrator.reset();
+    run(view, 0.5);
+    return { controller, view };
+  };
+
+  it('raises a warning, counts as a failed run for the status pill, and cannot be played past', () => {
+    const { controller } = failedTwin();
+    expect(controller.issues.map((i) => i.id)).toContain('twin-failed');
+    expect(controller.failed).toBe(true);
+    controller.play();
+    expect(controller.loop.settings.running).toBe(false);
+  });
+
+  it('is cleared, and the run goes on, by stopping the comparison from the warning', () => {
+    const { controller, view } = failedTwin();
+    controller.applyFix('stop-twin');
+    expect(controller.comparison).toBeNull();
+    expect(controller.failed).toBe(false);
+    expect(controller.loop.settings.running).toBe(true);
+    const t = controller.sim.state.t;
+    run(view, 0.3);
+    expect(controller.sim.state.t).toBeGreaterThan(t);
+    expect(controller.issues.map((i) => i.id)).not.toContain('twin-failed');
+  });
+});
+
+describe('Controller: a same-method twin', () => {
+  it.each([
+    ['the method', (c: Controller): unknown => c.setIntegrator('rk4')],
+    ['the step', (c: Controller): unknown => c.setDt(c.sim.params.dt / 2)],
+    ['the tolerance', (c: Controller): unknown => c.setEpsTol(1e-6)],
+    ['a step limit', (c: Controller): unknown => c.setStepLimit('dtMax', 0.1)],
+  ])('ends when %s of the first run changes, rather than comparing two different runs', (_name, change) => {
+    const { controller } = setup();
+    controller.startComparison({ kind: 'twin', nudge: { body: 0, target: 'position', direction: 'x', size: 1e-6 } });
+    change(controller);
+    expect(controller.comparison).toBeNull();
+    expect(controller.loop.twin).toBeNull();
+  });
+
+  it('is kept when a method comparison is running, which is meant to differ', () => {
+    const { controller } = setup();
+    controller.startComparison({ kind: 'method', integrator: 'rk4', dt: 0.01 });
+    controller.setDt(controller.sim.params.dt / 2);
+    expect(controller.comparison).not.toBeNull();
+  });
+});
+
 describe('Controller: return to start', () => {
   const kepler = (): { controller: Controller; view: StubView } => {
     const { controller, view } = setup();
@@ -351,6 +443,37 @@ describe('Controller: return to start', () => {
     expect(controller.sim.direction).toBe(1);
     run(view, 3);
     expect(controller.readout.returnDistance).toBeLessThan(1e-9);
+  });
+
+  it('is cancelled, not falsely completed, when the direction is flipped mid-return', () => {
+    const { controller, view } = kepler();
+    run(view, 1.5);
+    controller.returnToStart();
+    run(view, 0.2);
+    expect(controller.loop.stopAt).not.toBeNull();
+    controller.setDirection(1);
+    expect(controller.loop.stopAt).toBeNull();
+    const t = controller.sim.state.t;
+    run(view, 0.3);
+    expect(controller.sim.state.t).toBeGreaterThan(t); // it runs forward, as asked
+    expect(Number.isNaN(controller.readout.returnDistance)).toBe(true);
+    expect(controller.readout.status).not.toMatch(/returned|returning/);
+    expect(controller.loop.settings.running).toBe(true);
+  });
+
+  it('forgets the distance of a finished return when a new run begins', () => {
+    const { controller, view } = kepler();
+    run(view, 1);
+    controller.returnToStart();
+    run(view, 3);
+    expect(Number.isNaN(controller.readout.returnDistance)).toBe(false);
+    controller.loadPreset(FIGURE_EIGHT);
+    expect(Number.isNaN(controller.readout.returnDistance)).toBe(true);
+    run(view, 1);
+    controller.returnToStart();
+    run(view, 3);
+    controller.reset();
+    expect(Number.isNaN(controller.readout.returnDistance)).toBe(true);
   });
 
   it('reports at once when already at the start, and can be cancelled by pausing', () => {

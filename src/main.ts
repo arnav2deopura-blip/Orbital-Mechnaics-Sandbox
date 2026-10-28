@@ -12,7 +12,7 @@ import { BatchClient } from './app/batch';
 import { Controller } from './app/controller';
 import { isPageHash, onRoute } from './app/router';
 import type { Route } from './app/router';
-import { applyState, decodeShare } from './app/urlState';
+import { applyState, decodeShare, linkProblem, runLinks } from './app/urlState';
 import { FIGURE_EIGHT } from './presets/figureEight';
 import { SceneView } from './render/scene';
 import { createBanner } from './ui/banner';
@@ -52,13 +52,31 @@ for (const count of ['2', '3'] as const) {
 }
 // A link restores a run (plan §7.8), at load and when only the hash changes. A hash that names a
 // page (`#/learn/chaos`) is not a run.
+// Back or Forward onto the link already showing (from the Learn page) must not restart the run, but a
+// click on a "Try it" link, which also arrives here as a hash change, always starts it fresh.
+let tryItClickedAt = -Infinity;
 const fromHash = (): void => {
-  if (isPageHash(location.hash)) return;
-  const state = decodeShare(location.hash);
-  if (state) applyState(controller, view, state);
+  const hash = location.hash;
+  const clickedTryIt = performance.now() - tryItClickedAt < 1000;
+  tryItClickedAt = -Infinity;
+  if (isPageHash(hash) || !runLinks.shouldApply(hash, clickedTryIt)) return;
+  const state = decodeShare(hash);
+  if (state && applyState(controller, view, state)) {
+    runLinks.note(hash);
+    return;
+  }
+  const problem = linkProblem(hash);
+  if (problem) controller.announce('warning', 'That link could not be opened', problem);
 };
 fromHash();
 window.addEventListener('hashchange', fromHash);
+learnPage.addEventListener(
+  'click',
+  (event) => {
+    if ((event.target as Element).closest('a.try-it')) tryItClickedAt = performance.now();
+  },
+  true,
+);
 
 const charts = new Charts(shell.drawer, controller.sampler, () =>
   expectedEnergyBehavior(controller.sim.integrator.id, controller.sim.integrator.symplectic),

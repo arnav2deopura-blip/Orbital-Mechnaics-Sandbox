@@ -75,7 +75,7 @@ export function methodModule(controller: Controller): ModuleSpec {
           return Math.log10(ias.epsTol ?? 1e-9);
         },
         set exp(value: number) {
-          if (value !== this.exp) ias.epsTol = 10 ** value;
+          if (value !== this.exp) controller.setEpsTol(10 ** value);
         },
       };
       const tolBinding = pane.addBinding(tolerance, 'exp', { label: 'tolerance', min: -12, max: -4, step: 0.1, format: (value: number) => `1e${value.toFixed(1)}` });
@@ -86,7 +86,7 @@ export function methodModule(controller: Controller): ModuleSpec {
           return value === undefined ? off : Math.log10(value / sim.reference.period);
         },
         set exp(value: number) {
-          if (value !== this.exp) ias[key] = value === off ? undefined : 10 ** value * sim.reference.period;
+          if (value !== this.exp) controller.setStepLimit(key, value === off ? undefined : 10 ** value * sim.reference.period);
         },
       });
       const dtMinBinding = pane.addBinding(limit('dtMin', -12), 'exp', {
