@@ -330,9 +330,11 @@ describe('IAS15 dense output', () => {
     expect(Array.from(x)).toEqual(Array.from(start.x));
     expect(Array.from(v)).toEqual(Array.from(start.v));
     ias.dense(1, x, v);
+    // About two ulps of the value, not an absolute bound: one body sits near x = 50, where one ulp is
+    // 7e-15, and the last bit of dense(1) differs from the step's own sum between Node versions.
     for (let i = 0; i < 9; i++) {
-      expect(Math.abs(x[i] - s.x[i])).toBeLessThan(3e-16);
-      expect(Math.abs(v[i] - s.v[i])).toBeLessThan(3e-16);
+      expect(Math.abs(x[i] - s.x[i])).toBeLessThan(3e-16 * Math.max(1, Math.abs(s.x[i])));
+      expect(Math.abs(v[i] - s.v[i])).toBeLessThan(3e-16 * Math.max(1, Math.abs(s.v[i])));
     }
   });
 
