@@ -8,7 +8,7 @@ STRESS=1 npx vitest run tests/stress/inputs.test.ts
 STRESS=1 npx vitest run tests/stress/chaos.test.ts
 ```
 
-Both are skipped in normal `npm test` and CI. A failing case in them is a finding, not a regression. Phases 3–6 (performance soak, browser pass, content review, and the remaining fixes) are not done yet. The four small bugs marked **Fixed** below were fixed afterwards.
+Both are skipped in normal `npm test` and CI. A failing case in them is a finding, not a regression. Phases 3–6 (performance soak, browser pass, content review, and the remaining fixes) are not done yet. The bugs marked **Fixed** below were fixed afterwards, and a later pass (the section at the end) fixed most of the rest.
 
 Tags: **[P]** reproduced by a test or probe here, **[R]** seen only by reading the code and still to be reproduced.
 
@@ -166,3 +166,40 @@ The regression tests (`tests/chaos.test.ts`) pin Euler collinear, the sandbox, a
 - The Lyapunov windows are short for the fast-chaotic presets (5–21 T) because of the 6 s wall budget, and finite-time estimates of regular orbits decay like ln t / t.
 - The random-system run used a 250 ms budget per system, so some may not have reached 10 T_char.
 - The 120-run state machine and 60-system random sets are samples, not exhaustive.
+
+## Second pass: the remaining findings
+
+A later pass re-read the code for every item above that was still open, wrote a failing test for each, and fixed it. Nothing here was left as "to be reproduced": each item below has a regression test (the UI-only ones, marked *manual*, were checked in the browser).
+
+**Run control and state.**
+- Return to start, direction flipped mid-return: the return is cancelled (`Controller.setDirection`), not reported as arrived.
+- Back/Forward onto a run link already on screen no longer restarts the run (`RunLinks` in `urlState.ts`); a Learn "Try it" click still starts it fresh. There was no page reload: the `hashchange` handler restarted the run.
+- Twin failure: a `twin-failed` warning, the pill reads Failed, Play is held, and the banner offers to stop the comparison.
+- Divergence is not updated while the two runs are drawn at different times; Step gives the twin a 50 ms budget.
+- A method switch starts a new run for the banner (dismissed warnings come back); a close-encounter pause says why; the return distance is cleared by a new run.
+- T_char is kept through rotate, nudge, G and softening; an edit that changes the system's size by more than 2x reframes the camera.
+- A same-method twin ends when the first run's method, step, tolerance or step limits change.
+- A link that cannot be opened says so on the banner.
+
+**Messages.**
+- "Unbound" and "only just bound" are judged from the kinetic energy within the system (the drift of the whole is taken out), in the preflight check and in the preset suggestion.
+- A failed step is blamed on a close approach only when two bodies were close; otherwise it says the numbers overflowed. A far body is no longer promised to be bound.
+
+**Solver and inputs.**
+- A maximum step below the minimum no longer pins every IAS15 step under the minimum; links and the sliders keep the two in order.
+- **IAS15's stall on the Pythagorean problem (Physics and preset defects, item 3) is fixed**: the roundoff expected in the accelerations is taken off the error estimate, only when it is more than 5% of epsTol. Orbits near the origin step exactly as before (golden tests unchanged); t = 85 to 90 went from over 100,000 steps (capped) to a few thousand, with the energy error unchanged.
+- `isFiniteState` no longer overflows on large finite values.
+
+**Batch jobs and charts.**
+- A Lyapunov job on a run that broke down says so instead of "no sign of chaos"; a sweep whose reference run fails says so; failed sweep runs are left out of the plots and counted.
+- Batch jobs ride out min-step and encounter stops (`advanceThrough`) instead of taking an early state for the state at the target time.
+- A stopped comparison, a failed run and an exact-zero first sample are gaps on the log charts (`forLogAxis`), not a perfect run at the 1e-18 floor.
+- A batch or chaos worker that fails is replaced, so later jobs do not hang.
+- "Continue" after a fast-forward is refused if the system changed since it began (`Controller.continueFrom`). A Cancel that arrives as a job finishes now cancels it (*manual*).
+- The momentum error is relative to Σ m|v|.
+
+**Page.**
+- Off-screen arrows for a body past the far plane or inside the near plane point the right way (`arrowTarget`); orthographic cameras are not mirrored.
+- A line at the top says the page is laid out for 1200 by 680 pixels when the window is smaller (*manual*); a failed Learn load says so and can be retried (*manual*).
+
+**Still open.** The Šuvakov `stable` flags (item 5 of Physics and preset defects) need a Floquet/monodromy check, and instability of Euler-collinear and Lagrange below the Routh mass is untested. The newer IAS15 timestep criterion (Pham, Rein and Spiegel 2024) is not implemented; the noise floor above is the smaller change. The batch module's UI wiring (`data.ts`) has no automated test. The built-in browser pane's frame rate is still too low to time anything.

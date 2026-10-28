@@ -85,7 +85,7 @@ for a phone or tablet (below that size the page scrolls). The HTML viewport meta
 | Dev server | `npm run dev` → `http://localhost:5173` (a `.claude/launch.json` defines `dev` on 5173 and `dev-alt` on 5174) |
 | Output | `dist/` — a plain static site with relative URLs (`base: './'`), hostable at any path (GitHub Pages, Netlify, a school server) |
 | Multi-page setup | `appType: 'mpa'`; two Vite inputs: `index.html` (the app) and `learn.html` (a redirect stub) |
-| Tests | 37 test files, roughly 530 test cases, plus golden data from REBOUND |
+| Tests | 40 test files, roughly 1,020 test cases, plus golden data from REBOUND |
 | CI | `.github/workflows/ci.yml`: Node 22 → `npm ci` → typecheck → lint → test → build, on every push and PR |
 | State storage | Only `localStorage` (layout preferences), key `three-body-sandbox.layout.v1`; failures to read/write are tolerated |
 | Dev-only hooks | `?offset=1e6` (moves the system far from the origin to prove the floating origin works); in dev builds `window.__view`, `__controller`, `__charts`, `__shell` are exposed |
@@ -419,7 +419,7 @@ Method-specific mechanics:
 - **Conserved quantities:** energy, total momentum, COM motion, angular momentum (ten integrals for three bodies); two bodies additionally have the Laplace–Runge–Lenz vector.
 - **Diagnostics** (`measure`): kinetic, potential, total energy, L (about the origin), P, COM, closest pair distance (unsoftened).
 - **Reference values** (taken on load/edit): E₀ with a scale (|E₀|, or K+|U| when E₀ is below 1e-6 of it), L₀ with scale Σ m|x||v| (or Σ m|x| × characteristic speed when that is zero, e.g. starting from rest), P₀, **T_char**, and the system size.
-- **Errors shown:** energy error |E−E₀|/scale; angular-momentum error |L−L₀|/L_scale (vector norm); momentum error |P−P₀| (absolute).
+- **Errors shown:** energy error |E−E₀|/scale; angular-momentum error |L−L₀|/L_scale (vector norm); momentum error |P−P₀| / Σ m|v| (relative to the momenta of the bodies, like the other two).
 - **T_char:** the preset's declared period if it has one (a generator's own period wins), else the **shortest two-body period** over all pairs, 2π√(r³/(G(mᵢ+mⱼ))); pairs of two test particles have none; 1 if no pair has one. It sets the speed slider's units, chart sampling, step-size slider, and T-units on the clock.
 - **Characteristic speed:** √(2(K+|U|)/M). **System size:** diameter of the sphere about the COM that just holds every body.
 - **Exact Kepler reference** (`analytic.ts`): for two bodies, or three bodies with exactly one massless; advances the relative orbit with the Kepler drift and compares the position of the two massive bodies (largest component difference). Unavailable with softening.
@@ -451,7 +451,7 @@ Nine series, each a uPlot chart in the drawer; a chip in the header toggles each
 |---|---|---|---|
 | **Energy error** \|E−E₀\|/\|E₀\| (Energy) | log | max | Bounded oscillation = symplectic. Linear growth = RK4-style drift. Exponential growth or a jump = Euler or an unresolved encounter. √t growth = IAS15 roundoff. |
 | **Angular momentum error** (Ang. momentum) | log | max | Conserved to roundoff by every method (pairwise central force); a rise points to a bug, or to softening that is not central. |
-| **Momentum error** \|P−P₀\| (Momentum) | log | max | Conserved to roundoff by every method. |
+| **Momentum error** \|P−P₀\| / Σ m\|v\| (Momentum) | log | max | Conserved to roundoff by every method, so it reads at roundoff however heavy or fast the bodies are. |
 | **Center of mass drift** (COM drift) | log | max | How far the COM has moved since the start; zero when total momentum is zero. |
 | **Closest pair distance** (Closest pair; "Separation" for two bodies) | log | min | Dips explain energy spikes and shrinking IAS15 steps. |
 | **Step size taken** (Step size) | log | min | Constant for fixed-step methods; IAS15 shrinks it near close encounters. |
@@ -593,11 +593,12 @@ A single long page in the app's own window (route `#/learn`), the **Read** mode 
 - Two chapters are generated from data: **The presets explained** and **References**; the glossary is split into two columns.
 - Chapter text is also the source of the simulator's **method info cards** (`## Idea / Analogy / Strengths and weaknesses / Cost / When to use it`).
 
-**Chapters (18):**
+**Chapters (19):**
 
 | Group | Chapter (id) | What it covers |
 |---|---|---|
-| Foundations | **What is the three-body problem?** (`three-body-problem`) | Two bodies have a closed form; a third kills it (Bruns, Poincaré). The equation of motion. The ten conserved quantities (energy 1, momentum 3, COM motion 3, angular momentum 3). *Go deeper*: the ten integrals and their symmetries; 18 state numbers minus 10 integrals leaves a chaotic remainder. Sub-section **Two bodies, as a control**: the Bodies switch, the exact orbit, the Laplace–Runge–Lenz vector. Try it: figure-eight, Pythagorean, Kepler orbit, hyperbolic flyby |
+| Foundations | **What is the three-body problem?** (`three-body-problem`) | Two bodies have a closed form; a third kills it (Bruns, Poincaré). The equation of motion. The ten conserved quantities (energy 1, momentum 3, COM motion 3, angular momentum 3). *Go deeper*: the ten integrals and their symmetries; 18 state numbers minus 10 integrals leaves a chaotic remainder. Sub-section **Two bodies, as a control**: a short pointer to the next chapter. Try it: figure-eight, Pythagorean |
+| Foundations | **Two bodies, and what the third changes** (`two-bodies-versus-three`, file `01b-…`) | Why two bodies are really one (center of mass, the separation as one particle, conic sections, Kepler's three laws); why a pair can be solved and a triple cannot (12 vs 18 numbers of state, the Laplace–Runge–Lenz vector, Bruns and Poincaré); a side-by-side table; what the simulator does differently with two bodies (exact-Kepler error chart, chaos probe off, no Routh ratio, Wisdom–Holman exact); the in-between cases (a massless third body, hierarchical systems). *Go deeper*: reduced mass, the conic equation, the integrals of the Kepler problem. Try it: Kepler orbit, circular binary, hyperbolic flyby, figure-eight, Pythagorean, Euler and leapfrog on the circular binary, near-radial plunge, 2-body sandbox, Kepler pair + test particle, star-planet-moon |
 | Foundations | **How a computer "moves" planets** (`how-a-computer-moves-planets`) | Time steps and integrators; the stepping-stone analogy; Euler's recipe spirals outward; five methods introduced. *Go deeper*: ẋ = v, v̇ = a(x). Try it: Euler on a Kepler orbit |
 | Foundations | **Error, order and cost** (`error-order-cost`) | Local vs global error; order p ⇒ halving dt cuts error 2^p; table of order and force evaluations per method; cost = force evaluations; equalizing cost. *Go deeper*: O(dt^{p+1}) local, O(dt^p) global; the batch tool measures slopes 1, 2, 4. Try it: leapfrog and RK4 at the same step |
 | Foundations | **Conservation laws as a lie detector** (`conservation-laws`) | How a method fails to conserve energy identifies it (bounded oscillation / steady drift / rapid growth / √t growth); momentum and angular momentum to roundoff; why angular momentum error uses Σm\|r\|\|v\| (figure-eight has L = 0). *Go deeper*: softened potential. Try it: figure-eight with RK4 vs leapfrog |
@@ -735,10 +736,10 @@ src/
 **Documented limitations (README / code comments):**
 - Not done: **dragging bodies in the view**, **exaggerating z for display**, the **symplectic correctors of WHFast**, and the **newer IAS15 timestep criterion** (Pham–Rein–Spiegel 2024).
 - **Šuvakov–Dmitrašinović orbits:** the shipped initial conditions are refined (≈ 1e-11 closure); the periods differ from the published ones in the fourth digit; the closure test vouches for them.
-- **IAS15 with a tight pair far from the origin:** the step can collapse (see §11); tolerances below 1e-10 are near the noise floor.
+- **IAS15 with a tight pair far from the origin:** the roundoff expected in the accelerations is taken off the error estimate when it is a real part of the tolerance (`roundoffNoise` in `ias15.ts`), so the Pythagorean problem's final binary no longer collapses the step; the newer criterion of Pham–Rein–Spiegel would still be the fuller fix, and tolerances below 1e-10 are near the noise floor.
 - **Allocation:** the step loop retains nothing but makes a little short-lived garbage per step (boxed doubles); measured, not zero.
 - **Divergence in comparison mode** is measured once per frame, so at very high speed several samples share one value.
-- **Desktop-only:** no phone/tablet layout.
+- **Desktop-only:** no phone/tablet layout. Below 1200 by 680 pixels the page scrolls, and a line across the top (`.narrow-note`) says so.
 - **Hosting** is GitHub Pages (`.github/workflows/pages.yml` builds `dist/` on every push to `main`); the build stays host-agnostic (relative `base`, hash routes).
 - **Bodies never merge** (a collision is just a close encounter with a user-chosen radius); changing N would break Wisdom–Holman's Jacobi setup.
 - **Wisdom–Holman cannot use softening**; choosing WH removes it.
@@ -748,6 +749,6 @@ src/
 - Several Learn chapters still use older interface words: they refer to the *"Compare folder"*, *"Bodies folder"*, *"Perturb tool"* and *"the Diagnostics folder shows the Routh value"*; in the current interface these are the **Compare**, **Bodies & Physics**, **Perturb (chaos)** modules, and the Routh value is in **Live Numbers**.
 - Some Learn text still speaks only of three bodies (e.g. the glossary defines a force evaluation as "the pull on all three bodies") though the app now also runs pairs.
 - The Method module's "About this method" text is read straight from the Learn markdown, so editing a method's chapter changes the in-panel card as well.
-- When run in a browser window smaller than 1200 px the page scrolls rather than reflows (observed at 800 × 600; at an emulated 1440 × 900 the full layout shows).
+- When run in a browser window smaller than 1200 px the page scrolls rather than reflows (observed at 800 × 600; at an emulated 1440 × 900 the full layout shows); a note at the top of the page now says so.
 
 **Observed in a live run (dev server, emulated 1440 × 900):** the default view is *Figure-eight / Leapfrog*, running at 0.13 orbits/s; the module chooser lists 11 modules under the four tabs; the Layout menu shows the four arrangements plus the Charts/Module-panel checkboxes, the "F orbits only, and back" hint and *Reset layout*; with charts on, the drawer shows Energy, Ang. momentum, Closest pair and Step size by default (the exact-Kepler and Divergence chips are marked n/a until data exist); switching to 2 bodies loads *Sandbox (2 bodies)* (the last used) with presets *Kepler orbit, Circular binary, Near-radial plunge, Hyperbolic flyby* and the closest-pair chip renamed "Separation"; the *Learn* page shows 18 chapters, 21 preset entries and 14 references; the link `#preset=kepler-orbit&integrator=euler&dt=0.05&speed=3` loads and raises the banner **"Euler's energy has run away — Energy is off by 61%…"** with the buttons *Use a smaller step and restart*, *Restart this run*, and *Why does this happen? →*.
