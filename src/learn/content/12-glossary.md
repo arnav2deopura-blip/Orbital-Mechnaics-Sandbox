@@ -20,6 +20,12 @@
 
 **Jacobi coordinates.** Positions measured relative to the center of mass of the bodies already counted: the natural coordinates for Wisdom–Holman.
 
+**Kepler problem.** Two bodies attracting each other, the one gravitational problem with an exact solution: the orbit is a conic section and a formula gives the position at any time.
+
+**Kepler's laws.** The orbit is an ellipse (or another conic section), equal areas are swept in equal times, and the square of the period is proportional to the cube of the orbit's size.
+
+**Laplace-Runge-Lenz vector.** An extra conserved arrow of the two-body problem, along the long axis of the orbit and pointing at its closest point. It is why bound two-body orbits close, and it has no counterpart for three bodies.
+
 **Lyapunov time.** The time for nearby states to separate by a factor $e$ in a chaotic system.
 
 **Order.** A method of order $p$ has a global error that shrinks like $dt^p$.
@@ -27,6 +33,8 @@
 **Periodic orbit.** A solution that returns exactly to its starting state after a period.
 
 **Predictability horizon.** How long a computed path can be trusted in a chaotic system: roughly the Lyapunov time times $\ln(0.1/\varepsilon)$, for an error of relative size $\varepsilon$. After it the path is one of many equally valid ones.
+
+**Reduced mass.** $\mu=m_1m_2/(m_1+m_2)$: the mass of the single imaginary body that moves like the separation of a pair.
 
 **Softening.** Replacing $r^2$ by $r^2+\varepsilon^2$ in the force so that close encounters are gentler.
 

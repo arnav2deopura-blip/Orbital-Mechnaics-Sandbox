@@ -20,10 +20,4 @@ The ten integrals are $E=\sum \tfrac12 m_i v_i^2-\sum_{i<j} G m_i m_j/r_{ij}$, $
 
 ## Two bodies, as a control
 
-The **Bodies** switch at the top of the simulator takes the third body away. What is left is the one case that does have a formula, so it is the best test there is: every method can be checked against the exact orbit, and the chart *Error against the exact Kepler solution* appears by itself.
-
-Two bodies are not just simpler, they are different in kind. Besides the ten conserved quantities there is one more, the Laplace-Runge-Lenz vector, and together they are enough to write the orbit down. That is why a pair is the control experiment, and why the chaos of the three-body problem needs the third body.
-
-[Try it: two bodies on an exact Kepler orbit](index.html#preset=kepler-orbit)
-
-[Try it: a hyperbolic flyby, the one two-body orbit that does not close](index.html#preset=hyperbolic-flyby)
+The **Bodies** switch at the top of the simulator takes the third body away. What is left is the one case that does have a formula, so it is the best test there is: every method can be checked against the exact orbit. The [next chapter](learn.html#two-bodies-versus-three) explains why a pair can be solved and a triple cannot, and what changes in the simulator when you switch.

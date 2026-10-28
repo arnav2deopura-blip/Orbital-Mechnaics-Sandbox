@@ -8,6 +8,7 @@ import { REFERENCES, renderReferences } from '../src/learn/references';
 import { renderMarkdown } from '../src/learn/render';
 import { findPreset, PRESETS } from '../src/presets';
 import { FIGURE_EIGHT } from '../src/presets/figureEight';
+import { bodyCountOf } from '../src/presets/schema';
 import { defaultSettings } from '../src/render/scene';
 import type { CameraMode } from '../src/render/scene';
 import type { SystemState } from '../src/sim/types';
@@ -113,6 +114,27 @@ describe('the Learn content', () => {
 
   it('keeps the dollar signs balanced, so no stray math is left unrendered', () => {
     for (const [path, source] of files) expect(((source.match(/\$/g) ?? []).length) % 2, path).toBe(0);
+  });
+
+  it('has a chapter on two bodies versus three, between the first and second chapters, with Try-it links for both', () => {
+    const names = files.map(([path]) => path.split('/').pop() as string);
+    const at = names.findIndex((n) => n.startsWith('01b-'));
+    expect(at, 'a 01b chapter').toBeGreaterThan(0);
+    expect(names[at - 1]).toMatch(/^01-/);
+    expect(names[at + 1]).toMatch(/^02-/);
+
+    const source = files[at][1];
+    expect(titleOf(source)).toMatch(/two bodies/i);
+    const counts = new Set(
+      links(source)
+        .filter((l) => l.text.startsWith('Try it'))
+        .map((l) => bodyCountOf(findPreset(decodeShare(l.href.slice(l.href.indexOf('#')))!.preset)!)),
+    );
+    expect([...counts].sort()).toEqual([2, 3]);
+
+    // The earlier chapter points at it by the id the Learn page gives it (the file name without its number).
+    const pointer = links(files.find(([path]) => /\/01-/.test(path))![1]).map((l) => l.href);
+    expect(pointer).toContain('learn.html#two-bodies-versus-three');
   });
 });
 
