@@ -293,7 +293,7 @@ Modules marked ⟳ are **rebuilt when the body count changes** (their controls d
 #### Chart Data & Export
 *How often the charts sample, and CSV downloads.*
 - **samples / T** (20…2000, step 10; default 200 per T_char) — applies from now on.
-- **Clear history**, **Download diagnostics CSV** (`three-body-diagnostics.csv`), **Download trajectory CSV** (`three-body-trajectory.csv`).
+- **Clear history**, **Download diagnostics CSV** (`orbital-diagnostics.csv`), **Download trajectory CSV** (`orbital-trajectory.csv`).
 
 #### Batch Jobs
 *Convergence sweeps, fast-forward and a Lyapunov estimate, run in the background.* See [§17](#17-batch-jobs-web-worker).
