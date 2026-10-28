@@ -35,6 +35,17 @@ export function createDiagnostics(): Diagnostics {
   };
 }
 
+/**
+ * The kinetic energy of the motion relative to the center of mass: what is left after the bulk
+ * drift, 0.5 |P|² / M, is taken out. Whether a system is bound is a statement about this, not
+ * about the lab-frame kinetic energy, which a drift of the whole system inflates.
+ */
+export function internalKinetic(d: Diagnostics, totalMass: number): number {
+  if (!(totalMass > 0)) return d.kinetic;
+  const drift = 0.5 * (d.P[0] * d.P[0] + d.P[1] * d.P[1] + d.P[2] * d.P[2]) / totalMass;
+  return Math.max(d.kinetic - drift, 0);
+}
+
 export function measure(s: SystemState, out: Diagnostics): void {
   const { m, x, v } = s;
   const n = s.n;

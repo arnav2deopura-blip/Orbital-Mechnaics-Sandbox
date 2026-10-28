@@ -1,4 +1,4 @@
-import { characteristicSpeed, createDiagnostics, measure, systemSize } from '../sim/diagnostics';
+import { characteristicSpeed, createDiagnostics, internalKinetic, measure, systemSize } from '../sim/diagnostics';
 import type { SystemState } from '../sim/types';
 
 // "Try this preset instead": the preset whose setup is closest to the user's own values, read
@@ -54,9 +54,13 @@ export function suggestPreset(s: SystemState): Suggestion {
   measure(s, d);
   const size = systemSize(s);
   const speed = characteristicSpeed(s);
+  // Everything is judged within the system: a drift of the whole of it (the center of mass moving) is neither speed nor tilt.
+  const mass = s.m[0] + s.m[1] + s.m[2];
+  const driftZ = mass > 0 ? d.P[2] / mass : 0;
+  const kinetic = internalKinetic(d, mass);
   let flat = true;
   for (let i = 0; i < 3; i++) {
-    if (Math.abs(s.x[3 * i + 2] - d.com[2]) > 0.05 * size || Math.abs(s.v[3 * i + 2]) > 0.05 * speed) flat = false;
+    if (Math.abs(s.x[3 * i + 2] - d.com[2]) > 0.05 * size || Math.abs(s.v[3 * i + 2] - driftZ) > 0.05 * speed) flat = false;
   }
   const sep = (i: number, j: number): number =>
     Math.hypot(s.x[3 * j] - s.x[3 * i], s.x[3 * j + 1] - s.x[3 * i + 1], s.x[3 * j + 2] - s.x[3 * i + 2]);
@@ -76,7 +80,7 @@ export function suggestPreset(s: SystemState): Suggestion {
     return { presetId: 'lagrange', why: 'One dominant mass with two lighter ones: the Lagrange triangle, which a dominant mass keeps stable.' };
   }
   if (light > 0 && heavy <= SIMILAR * light) {
-    if (d.kinetic < 0.05 * -d.potential) {
+    if (kinetic < 0.05 * -d.potential) {
       return { presetId: 'pythagorean', why: 'Similar masses starting almost at rest: exactly the Pythagorean problem, a famous chaotic case.' };
     }
     if (tightPair && !flat) {

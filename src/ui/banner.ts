@@ -11,7 +11,7 @@ import { el } from './shell';
 // that fix it (health.ts says which), and on a first visit a card pointing at the Learn page.
 
 const FIX_LABELS: Record<Exclude<Fix, 'suggested'>, string> = {
-  bind: 'Slow the bodies so it stays together',
+  bind: 'Slow the bodies until the system is bound',
   ias15: 'Switch to IAS15 and restart',
   'smaller-step': 'Use a smaller step and restart',
   reset: 'Restart this run',

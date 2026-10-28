@@ -75,6 +75,8 @@ export interface BodyDraft {
 const READOUT_SECONDS = 0.1;
 /** A body has escaped (plan §7.5) beyond this many times the size the system had when loaded. */
 const ESCAPE_SIZES = 20;
+/** A failed step is blamed on a close approach when two bodies were closer than this fraction of the system's size just before it. */
+const CLOSE_FAILURE = 0.05;
 /** Below this fraction of the requested speed, the status says so. */
 const LAG_NOTICE = 0.95;
 
@@ -809,6 +811,7 @@ export class Controller {
       integrator: sim.integrator.id,
       explicitEuler: sim.integrator.id === 'euler' && !sim.integrator.symplectic,
       failure: sim.failure,
+      closeApproach: d.minSeparation < CLOSE_FAILURE * sim.reference.size,
       twinFailure: this.comparison?.sim.failure ?? null,
       stopped: this.loop.settings.running ? null : sim.stopReason,
       warning: sim.warning,

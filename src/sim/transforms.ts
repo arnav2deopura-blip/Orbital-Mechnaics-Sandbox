@@ -103,7 +103,8 @@ function normalTo(s: SystemState, out: [number, number, number]): void {
 /**
  * Slows the bodies down, relative to their center of mass, until the kinetic energy is `ratio`
  * of the potential energy's size: 0.5 is the virial balance of a bound system, and anything
- * below 1 is bound. Positions and the center-of-mass velocity are kept. Returns the factor the
+ * below 1 makes the total energy negative (not all three can then escape, though with three
+ * bodies one can still be thrown out). Positions and the center-of-mass velocity are kept. Returns the factor the
  * relative velocities were multiplied by (1 if the bodies are at rest or have no mass).
  */
 export function scaleToBound(s: SystemState, ratio = 0.5): number {

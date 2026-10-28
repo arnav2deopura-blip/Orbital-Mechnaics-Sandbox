@@ -67,6 +67,18 @@ describe('preflight', () => {
     expect(issue.fixes).toEqual(['bind', 'suggested']);
   });
 
+  it('judges whether a system is bound in its own frame, so a drift of the whole system is not called unbound', () => {
+    // Two unit masses a distance 1 apart on a circular orbit (each at 0.707), and the whole system drifting at speed 3.
+    const circular = (drift: number, scale = 1): SystemState =>
+      state([1, 1, 0], [-0.5, 0, 0, 0.5, 0, 0, 9, 9, 9], [drift, -0.7071 * scale, 0, drift, 0.7071 * scale, 0, 0, 0, 0]);
+    expect(ids(preflight({ state: circular(0), integrator: 'ias15', dt: 0.01, period: 4.4 }))).not.toContain('unbound');
+    expect(ids(preflight({ state: circular(3), integrator: 'ias15', dt: 0.01, period: 4.4 }))).not.toContain('unbound');
+    expect(ids(preflight({ state: circular(3), integrator: 'ias15', dt: 0.01, period: 4.4 }))).not.toContain('loosely-bound');
+    // Genuinely unbound in its own frame (the pair flies apart), drifting or not.
+    expect(ids(preflight({ state: circular(3, 2), integrator: 'ias15', dt: 0.01, period: 4.4 }))).toContain('unbound');
+    expect(ids(preflight({ state: circular(0, 2), integrator: 'ias15', dt: 0.01, period: 4.4 }))).toContain('unbound');
+  });
+
   it('flags bodies that start on top of each other and fall together, but not a close pair in orbit', () => {
     const s = state([1, 1, 1], [0, 0, 0, 1e-4, 0, 0, 1, 1, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(ids(preflight({ state: s, integrator: 'ias15', dt: 1e-4, period: 1 }))).toContain('close-start');
@@ -88,6 +100,21 @@ describe('runtime issues', () => {
     expect(issues[0]).toMatchObject({ id: 'failed', severity: 'danger' });
     expect(issues[0].fixes).toContain('ias15');
     expect(issues[0].detail).toMatch(/^Integration failed/);
+  });
+
+  it('blames a close approach only when there was one, and otherwise says the numbers overflowed', () => {
+    const close = runtimeIssues({ ...quiet, failure: 'integration failed at t=1, min separation 1e-9', closeApproach: true })[0];
+    expect(close.detail).toMatch(/came so close/);
+    const extreme = runtimeIssues({ ...quiet, failure: 'integration failed at t=0, min separation 0.87', closeApproach: false })[0];
+    expect(extreme.id).toBe('failed');
+    expect(extreme.detail).not.toMatch(/came so close/);
+    expect(extreme.detail).toMatch(/step size|too big|extreme/);
+  });
+
+  it('does not promise that a body far away is bound and will come back', () => {
+    const [far] = runtimeIssues({ ...quiet, far: [true, false, false] });
+    expect(far.id).toBe('far-0');
+    expect(far.detail).not.toMatch(/still bound|may come back/);
   });
 
   it('pauses on an energy blow-up, except with explicit Euler, where it is the lesson', () => {
@@ -141,6 +168,14 @@ describe('suggestPreset', () => {
   it('reads similar masses at rest as the Pythagorean problem', () => {
     const s = state([3, 4, 5], [1, 3, 0, -2, -1, 0, 1, -1, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(suggestPreset(s).presetId).toBe('pythagorean');
+  });
+
+  it('ignores a drift of the whole system: at rest in its own frame is still the Pythagorean problem, and flat is still flat', () => {
+    const drifting = state([3, 4, 5], [1, 3, 0, -2, -1, 0, 1, -1, 0], [5, 0, 2, 5, 0, 2, 5, 0, 2]);
+    expect(suggestPreset(drifting).presetId).toBe('pythagorean');
+    const eight = instantiate(FIGURE_EIGHT).state;
+    for (let i = 0; i < 3; i++) eight.v[3 * i + 2] = 4; // a drift out of the plane, which is not tilt
+    expect(suggestPreset(eight).presetId).toBe('figure-eight');
   });
 
   it('reads equal moving masses as the figure-eight', () => {
@@ -231,6 +266,34 @@ describe('Controller health', () => {
     controller.applyFix('smaller-step');
     expect(controller.sim.reference.period / controller.sim.params.dt).toBeGreaterThanOrEqual(20);
     expect(ids([...controller.issues])).not.toContain('coarse-step');
+  });
+
+  it('names the right cause when a step overflows with the bodies far apart, and when two bodies were close', () => {
+    const view = new StubView();
+    const controller = new Controller(view, FIGURE_EIGHT);
+    controller.start();
+    controller.setIntegrator('rk4');
+    controller.setDt(1e300);
+    controller.play();
+    view.frame!(0.2);
+    view.frame!(0.2);
+    const far = controller.issues.find((i) => i.id === 'failed');
+    expect(far, 'a failure').toBeDefined();
+    expect(far!.detail).not.toMatch(/came so close/);
+
+    const plunge = new Controller(view, FIGURE_EIGHT);
+    plunge.start();
+    const next = snapshot(plunge.sim.state);
+    next.x.set([0, 0, 0, 0, 0, 0, 5, 5, 0]); // two bodies exactly on top of each other
+    next.v.fill(0);
+    plunge.edit(next, false);
+    plunge.setIntegrator('rk4');
+    plunge.setDt(1e-3);
+    plunge.play();
+    for (let i = 0; i < 30 && plunge.sim.failure === null; i++) view.frame!(0.2);
+    // The plunging pair fails at a step in which it was already close.
+    expect(plunge.sim.failure).not.toBeNull();
+    expect(plunge.issues.find((i) => i.id === 'failed')?.detail).toMatch(/came so close/);
   });
 
   it('frames the bodies through the view', () => {

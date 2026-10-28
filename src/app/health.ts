@@ -1,4 +1,4 @@
-import { createDiagnostics, measure, systemSize } from '../sim/diagnostics';
+import { createDiagnostics, internalKinetic, measure, systemSize } from '../sim/diagnostics';
 import type { IntegratorId } from '../sim/integrators/types';
 import type { SystemState } from '../sim/types';
 
@@ -62,21 +62,24 @@ export function preflight({ state, integrator, dt, period, expectUnbound = false
   measure(state, d);
   const massive = [...state.m].filter((m) => m > 0).length;
   const size = systemSize(state);
+  // Bound or not is a question about the motion within the system: a drift of the whole of it (the
+  // center of mass moving, with "re-center" off) adds kinetic energy that gravity has no part in.
+  const kinetic = internalKinetic(d, state.m[0] + state.m[1] + state.m[2]);
 
   if (expectUnbound) {
     // The preset is a flyby: being unbound is its point.
-  } else if (massive >= 2 && d.energy >= 0) {
+  } else if (massive >= 2 && kinetic + d.potential >= 0) {
     issues.push({
       id: 'unbound',
       severity: 'warning',
       title: 'This system is not bound',
       detail:
-        `Its total energy is positive: the bodies move too fast (kinetic ${d.kinetic.toPrecision(3)}) for their gravity ` +
+        `Its total energy is positive: the bodies move too fast (kinetic ${kinetic.toPrecision(3)}) for their gravity ` +
         `(potential ${d.potential.toPrecision(3)}) to hold them. At least one will fly off and never come back. That is real physics, not a bug.`,
       learn: 'stability',
       fixes: ['bind', 'suggested'],
     });
-  } else if (massive >= 2 && d.kinetic > LOOSE * -d.potential) {
+  } else if (massive >= 2 && kinetic > LOOSE * -d.potential) {
     issues.push({
       id: 'loosely-bound',
       severity: 'info',
@@ -159,6 +162,8 @@ export interface RuntimeInput {
   /** Explicit Euler, whose failure is the lesson. */
   explicitEuler: boolean;
   failure: string | null;
+  /** When there is a failure: whether two bodies were close when it happened. False says it was something else (a step or a number too big). */
+  closeApproach?: boolean;
   /** Why the comparison twin failed, when it has (the first run is fine). */
   twinFailure?: string | null;
   /** Why the run paused itself, while it is paused: a close encounter it was asked to stop at, or an integrator event. */
@@ -188,7 +193,10 @@ export function runtimeIssues(input: RuntimeInput): Issue[] {
       severity: 'danger',
       title: 'The integration broke down',
       detail:
-        `${capitalize(failure)}. Two bodies came so close that one step sent the numbers to infinity. ` +
+        `${capitalize(failure)}. ` +
+        (input.closeApproach === false
+          ? 'A step produced numbers that are not finite, though no two bodies were close. The step is most likely far too big for this system, or G or a mass is too extreme for the arithmetic. '
+          : 'Two bodies came so close that one step sent the numbers to infinity. ') +
         'The run is paused at the last good state.',
       learn: 'ias15',
       fixes: [...better, ...away],
@@ -295,7 +303,7 @@ export function runtimeIssues(input: RuntimeInput): Issue[] {
         id: `far-${k}`,
         severity: 'info',
         title: `Body ${k + 1} is far from the others`,
-        detail: `It is more than ${FAR_SIZES} times the starting size of the system away, so it may be off screen. It is still bound, so it may come back.`,
+        detail: `It is more than ${FAR_SIZES} times the starting size of the system away, so it may be off screen.`,
         fixes: ['frame'],
       });
     }
