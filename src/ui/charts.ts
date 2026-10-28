@@ -4,6 +4,7 @@ import { SERIES } from '../sim/sampler';
 import type { Sampler, SeriesKey, SeriesSpec } from '../sim/sampler';
 import { learnHref } from '../app/router';
 import { clampDrawer, DRAWER_DEFAULT, DRAWER_LARGE, DRAWER_MAX, DRAWER_MIN } from './arrangement';
+import { forLogAxis } from './align';
 import { decadeSplits } from './axes';
 import { chartGrid } from './chartLayout';
 import { ACCENT, INK, INK_2, INK_3, RULE, RULE_STRONG } from './palette';
@@ -77,10 +78,10 @@ interface Cell {
   readout: HTMLSpanElement;
   holder: HTMLDivElement;
   plot: uPlot;
-  /** y values for the plot: clamped copies, since a log axis cannot take zero. */
-  y: Float64Array;
+  /** y values for the plot, as the axis takes them: no zero or NaN on a log axis, and null where there is no data. */
+  y: (number | null)[];
   /** The twin's values at the first run's sample times. */
-  y2: Float64Array;
+  y2: (number | null)[];
 }
 
 export class Charts {
@@ -382,7 +383,7 @@ export class Charts {
       [[], [], []],
       holder,
     );
-    return { spec, root, label, readout, holder, plot, y: new Float64Array(0), y2: new Float64Array(0) };
+    return { spec, root, label, readout, holder, plot, y: [], y2: [] };
   }
 
   /** "t 3.21 · 1.2e-6" while the pointer is over a plot, nothing otherwise. */
@@ -422,20 +423,18 @@ export class Charts {
   private draw(cell: Cell): void {
     const { sampler } = this;
     const n = sampler.length;
-    if (cell.y.length < n) {
-      cell.y = new Float64Array(sampler.x.length);
-      cell.y2 = new Float64Array(sampler.x.length);
-    }
     const log = cell.spec.log;
-    const clamp = (v: number): number => (log ? Math.max(v, FLOOR) || FLOOR : v); // a log axis cannot take zero or NaN
-    const source = sampler.values[cell.spec.key];
-    for (let i = 0; i < n; i++) cell.y[i] = clamp(source[i]);
+    // A log axis cannot take zero or NaN (see forLogAxis); NaN on any axis is a gap, not a value.
+    const axis = (values: ArrayLike<number>): (number | null)[] =>
+      log ? forLogAxis(values, FLOOR) : Array.from(values, (v) => (Number.isNaN(v) ? null : v));
+    cell.y = axis(sampler.values[cell.spec.key].subarray(0, n));
 
     // The twin, dashed, resampled onto the first run's times (the two do not sample at the same instants).
     const twin = cell.spec.key === 'divergence' ? null : this.twin();
     const showTwin = twin !== null && twin.length > 0;
     if (showTwin) {
       const values = twin.values[cell.spec.key];
+      const resampled = new Float64Array(n);
       let j = 0;
       for (let i = 0; i < n; i++) {
         const x = sampler.x[i];
@@ -446,12 +445,15 @@ export class Charts {
           const f = (x - twin.x[j]) / (twin.x[j + 1] - twin.x[j]);
           v = values[j] + f * (values[j + 1] - values[j]);
         }
-        cell.y2[i] = clamp(v);
+        resampled[i] = v;
       }
+      cell.y2 = axis(resampled);
+    } else {
+      cell.y2 = new Array<number | null>(n).fill(null);
     }
     cell.plot.batch(() => {
       cell.plot.setSeries(2, { show: showTwin });
-      cell.plot.setData([sampler.x.subarray(0, n), cell.y.subarray(0, n), cell.y2.subarray(0, n)]);
+      cell.plot.setData([sampler.x.subarray(0, n), cell.y, cell.y2]);
     });
   }
 

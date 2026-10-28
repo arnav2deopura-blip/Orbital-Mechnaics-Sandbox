@@ -121,6 +121,8 @@ export interface Reference {
   Lscale: number;
   /** P0, the starting linear momentum. About zero in the COM frame. */
   P: Float64Array;
+  /** The normalizer for momentum error: the sum of |m v| of the bodies (from the energy when they start at rest). */
+  Pscale: number;
   /** T_char: the declared period of the preset if it has one, else the shortest pair period. */
   period: number;
   /** The size of the system when the reference was taken (systemSize): escape is measured in multiples of it. */
@@ -141,14 +143,18 @@ export function createReference(s: SystemState, period?: number): Reference {
   const energyScale = Math.abs(d.energy) > ENERGY_TINY * parts ? Math.abs(d.energy) : parts;
 
   let Lscale = 0;
+  let Pscale = 0;
   let sumMx = 0;
   for (let i = 0; i < s.n; i++) {
     const r = Math.hypot(s.x[3 * i], s.x[3 * i + 1], s.x[3 * i + 2]);
-    Lscale += s.m[i] * r * Math.hypot(s.v[3 * i], s.v[3 * i + 1], s.v[3 * i + 2]);
+    const speed = Math.hypot(s.v[3 * i], s.v[3 * i + 1], s.v[3 * i + 2]);
+    Lscale += s.m[i] * r * speed;
+    Pscale += s.m[i] * speed;
     sumMx += s.m[i] * r;
   }
   const M = s.m[0] + s.m[1] + s.m[2];
   if (!(Lscale > 0) && M > 0) Lscale = sumMx * characteristicSpeed(s);
+  if (!(Pscale > 0) && M > 0) Pscale = M * characteristicSpeed(s);
 
   return {
     energy: d.energy,
@@ -156,6 +162,7 @@ export function createReference(s: SystemState, period?: number): Reference {
     L: d.L,
     Lscale: Lscale > 0 ? Lscale : 1,
     P: d.P,
+    Pscale: Pscale > 0 ? Pscale : 1,
     period: period ?? characteristicTime(s),
     size: systemSize(s),
   };
@@ -171,9 +178,12 @@ export function angularMomentumError(d: Diagnostics, ref: Reference): number {
   return Math.hypot(d.L[0] - ref.L[0], d.L[1] - ref.L[1], d.L[2] - ref.L[2]) / ref.Lscale;
 }
 
-/** |P - P0|. Absolute: P0 is about zero, so there is nothing to divide by. */
+/**
+ * |P - P0| / Pscale. P0 is about zero (the COM frame), so it cannot be the divisor; the momenta of
+ * the bodies, whose sum cancels to it, are the scale roundoff comes in.
+ */
 export function momentumError(d: Diagnostics, ref: Reference): number {
-  return Math.hypot(d.P[0] - ref.P[0], d.P[1] - ref.P[1], d.P[2] - ref.P[2]);
+  return Math.hypot(d.P[0] - ref.P[0], d.P[1] - ref.P[1], d.P[2] - ref.P[2]) / ref.Pscale;
 }
 
 /**

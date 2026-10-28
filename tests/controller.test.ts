@@ -369,6 +369,49 @@ describe('Controller: edits keep what they do not change', () => {
   });
 });
 
+describe('Controller: continuing from a fast-forward', () => {
+  const result = (controller: Controller) => {
+    const s = snapshot(controller.sim.state);
+    for (let i = 0; i < s.x.length; i++) s.x[i] += 0.25; // anything that is not the current state
+    return { t: 12.5, x: Float64Array.from(s.x), v: Float64Array.from(s.v) };
+  };
+
+  it('loads the state the run ended in, as an edit that keeps the bodies and masses', () => {
+    const { controller } = setup();
+    const version = controller.systemVersion;
+    const final = result(controller);
+    expect(controller.continueFrom(final, version)).toBe(true);
+    expect(controller.sim.state.t).toBe(12.5);
+    expect(Array.from(controller.sim.state.x)).toEqual(Array.from(final.x));
+    expect(Array.from(controller.sim.state.m)).toEqual([1, 1, 1]);
+  });
+
+  it('refuses a result of another system: after a new preset, a body count change or an edit', () => {
+    for (const change of [
+      (c: Controller): void => c.loadPreset(PRESETS.find((p) => p.id === 'kepler-orbit')!),
+      (c: Controller): void => c.setBodyCount(2),
+      (c: Controller): void => c.rotate('x', 20),
+      (c: Controller): void => c.setG(2),
+    ]) {
+      const { controller } = setup();
+      const version = controller.systemVersion;
+      const final = result(controller);
+      change(controller);
+      const before = Array.from(controller.sim.state.x);
+      expect(controller.continueFrom(final, version)).toBe(false);
+      expect(Array.from(controller.sim.state.x)).toEqual(before); // the new system is untouched
+    }
+  });
+
+  it('still accepts the result after a restart of the same system, which it is a result of', () => {
+    const { controller, view } = setup();
+    const version = controller.systemVersion;
+    run(view, 0.2);
+    controller.reset();
+    expect(controller.continueFrom(result(controller), version)).toBe(true);
+  });
+});
+
 describe('Controller: events', () => {
   it('reports an encounter in the status, and pauses there if asked', () => {
     const { controller, view } = setup();

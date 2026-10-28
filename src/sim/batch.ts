@@ -36,6 +36,19 @@ async function between(ctx: BatchContext, done: number, total: number): Promise<
   if (ctx.cancelled()) throw new Cancelled();
 }
 
+/**
+ * Advances sim to t, riding out the stops it asks for. A close-encounter or minimum-step notice is
+ * meant for the run on screen, which pauses there; a headless job that took the early state for the
+ * state at t would measure the wrong thing. False if the run failed.
+ */
+export function advanceThrough(sim: Simulation, t: number): boolean {
+  for (;;) {
+    const status = sim.advanceTo(t, Infinity).status;
+    if (status === 'reached') return true;
+    if (status !== 'event') return false;
+  }
+}
+
 // ---- convergence sweep and work-precision ---------------------------------------------------
 
 export interface SweepSpec {
@@ -128,7 +141,9 @@ export async function convergenceSweep(spec: SweepSpec, ctx: BatchContext = quie
       params: { dt: duration / 200, epsTol: 1e-10, dtMin: duration * 1e-9 },
       load: { recenter: false },
     });
-    sim.advanceTo(t0 + duration, Infinity);
+    if (!advanceThrough(sim, t0 + duration)) {
+      throw new Error(`The reference run failed (${sim.failure}), so there is nothing to measure the errors against.`);
+    }
     reference = snapshot(state);
     sim.stateAt(t0 + duration, reference);
     await between(ctx, ++done, total);
@@ -153,7 +168,7 @@ export async function convergenceSweep(spec: SweepSpec, ctx: BatchContext = quie
       },
       load: { recenter: false },
     });
-    if (adaptive) sim.advanceTo(t0 + duration, Infinity);
+    if (adaptive) advanceThrough(sim, t0 + duration);
     else for (let i = 0; i < steps && sim.failure === null; i++) sim.step();
     sim.stateAt(t0 + duration, end);
     if (sim.failure !== null) {
@@ -228,7 +243,7 @@ export async function fastForward(spec: FastForwardSpec, ctx: BatchContext = qui
   const t0 = spec.state.t;
   const slices = 100;
   for (let k = 1; k <= slices && sim.failure === null; k++) {
-    sim.advanceTo(t0 + (duration * k) / slices, Infinity);
+    advanceThrough(sim, t0 + (duration * k) / slices);
     await between(ctx, k, slices);
   }
   const n = sampler.length;
@@ -263,6 +278,8 @@ export interface LyapunovResult {
   /** The last estimate, and its reciprocal (the Lyapunov time), Infinity if the estimate is not positive. */
   final: number;
   lyapunovTime: number;
+  /** Why the run stopped early, or null if it went through: with a failure the estimate is not a verdict. */
+  failure: string | null;
 }
 
 /**
@@ -291,16 +308,19 @@ export async function lyapunov(spec: LyapunovSpec, ctx: BatchContext = quietCont
   const sb = snapshot(spec.state);
   let sum = 0;
   let count = 0;
+  let failure: string | null = null;
   for (let k = 1; k <= intervals; k++) {
     const t = t0 + (duration * k) / intervals;
-    a.advanceTo(t, Infinity);
-    b.advanceTo(t, Infinity);
+    advanceThrough(a, t);
+    advanceThrough(b, t);
+    failure = a.failure ?? b.failure;
+    if (failure !== null) break;
     a.stateAt(t, sa);
     b.stateAt(t, sb);
     let d2 = 0;
     for (let i = 0; i < 9; i++) d2 += (sb.x[i] - sa.x[i]) ** 2 + (sb.v[i] - sa.v[i]) ** 2;
     const d = Math.sqrt(d2);
-    if (!(d > 0) || a.failure !== null || b.failure !== null) break;
+    if (!(d > 0)) break;
     sum += Math.log(d / delta0);
     count = k;
     times[k - 1] = t - t0;
@@ -327,5 +347,6 @@ export async function lyapunov(spec: LyapunovSpec, ctx: BatchContext = quietCont
     exponent: exponent.slice(0, count),
     final,
     lyapunovTime: final > 0 ? 1 / final : Infinity,
+    failure,
   };
 }

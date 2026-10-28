@@ -31,7 +31,7 @@ export function numbersModule(controller: Controller): ModuleSpec {
       };
       watch('energyError', 'energy error', scientific, '|E - E0| / |E0|. Real gravity keeps it at zero: anything else is the method’s error.');
       watch('angularMomentumError', 'L error', scientific, '|L - L0| / L_scale.');
-      watch('momentumError', '|P| error', scientific, 'Total momentum. Every method here keeps it at zero to roundoff.');
+      watch('momentumError', 'P error', scientific, '|P - P0| / (the sum of |m v| of the bodies). Every method here keeps it at roundoff.');
       watch('minSeparation', pair ? 'separation' : 'closest pair', (value) => value.toPrecision(3));
       // The Routh criterion is about three bodies on an equilateral triangle: a pair has none.
       if (!pair) watch('routh', 'Routh', fixed(3), "27 (m1 m2 + m2 m3 + m3 m1) / M^2. Lagrange's equilateral solution is stable below 1.");
@@ -103,6 +103,8 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
       const setup = { sweepPeriods: 1.3, fastForwardPeriods: 100, lyapunovPeriods: 20, status: 'idle' };
       let client: BatchClient | null = null;
       let running: RunningJob<unknown> | null = null;
+      /** Cancel was clicked: a result already on its way back must not carry the job on to its next step. */
+      let cancelRequested = false;
 
       /** Runs one job at a time, reporting on the status line; cancelled or failed jobs say so. */
       const launch = async (name: string, work: (batch: BatchClient, progress: (label: string) => (f: number) => void) => Promise<void>): Promise<void> => {
@@ -111,6 +113,7 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
           return;
         }
         client ??= new BatchClient();
+        cancelRequested = false;
         const progress = (label: string) => (f: number) => (setup.status = `${label}: ${Math.round(100 * f)}%`);
         running = { result: Promise.resolve(), cancel: () => {} };
         try {
@@ -123,9 +126,11 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
         }
       };
       /** Starts a job and makes the Cancel button cancel it. */
-      const track = <R>(job: RunningJob<R>): Promise<R> => {
+      const track = async <R>(job: RunningJob<R>): Promise<R> => {
         running = job as RunningJob<unknown>;
-        return job.result;
+        const result = await job.result;
+        if (cancelRequested) throw new Cancelled(); // the job finished just as Cancel was clicked, which then had nothing to cancel
+        return result;
       };
 
       const sweepFolder = pane.addFolder({ title: 'Convergence sweep' });
@@ -164,6 +169,7 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
         void launch('fast-forward', async (batch, progress) => {
           const period = sim.reference.period;
           const integrator = sim.integrator;
+          const version = controller.systemVersion;
           const result = await track(
             batch.fastForward(
               {
@@ -181,11 +187,8 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
           );
           const summary = `${setup.fastForwardPeriods} periods with ${integrator.id}: ${result.steps} steps, ${result.forceEvals} force evaluations, reached t = ${result.final.t.toPrecision(5)}.`;
           view.showFastForward(result, summary, () => {
-            const next = snapshot(sim.state);
-            next.t = result.final.t;
-            next.x.set(result.final.x);
-            next.v.set(result.final.v);
-            controller.edit(next, false);
+            // The preset menu and the editor stay usable under the result: it may be of a system that is gone.
+            if (!controller.continueFrom(result.final, version)) setup.status = 'the system has changed since this fast-forward began: run it again to continue';
           });
         }),
       );
@@ -204,7 +207,10 @@ export function batchModule(controller: Controller, view: BatchView): ModuleSpec
       setTitle(lyap, 'Follows a shadow copy offset by 1e-8, renormalizing every so often (the Benettin method), and plots the running estimate of the largest Lyapunov exponent.');
       lyapFolder.addBinding(setup, 'lyapunovPeriods', { label: 'periods', min: 1, max: 500, step: 1 });
 
-      pane.addButton({ title: 'Cancel job' }).on('click', () => running?.cancel());
+      pane.addButton({ title: 'Cancel job' }).on('click', () => {
+        if (running) cancelRequested = true;
+        running?.cancel();
+      });
       pane.addBinding(setup, 'status', { label: 'status', readonly: true, interval: REFRESH_MS });
       learnLink(body, 'Learn about error, order and cost →', 'error-order-cost');
       return () => pane.refresh();

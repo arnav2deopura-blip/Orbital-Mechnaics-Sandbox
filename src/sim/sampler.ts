@@ -32,7 +32,7 @@ export interface SeriesSpec {
 export const SERIES: readonly SeriesSpec[] = [
   { key: 'energyError', label: 'Energy error |E - E0| / |E0|', log: true, merge: 'max', hint: 'Bounded oscillation means a symplectic method. Linear growth is RK4-style drift. Exponential growth or a jump is Euler or an unresolved encounter. Growth like the square root of time is IAS15 roundoff.' },
   { key: 'angularMomentumError', label: 'Angular momentum error |L - L0| / L_scale', log: true, merge: 'max', hint: 'Conserved to roundoff by every method here, since the force is pairwise and central. A rise points to a bug, or to softening that is not central.' },
-  { key: 'momentumError', label: 'Momentum error |P - P0|', log: true, merge: 'max', hint: 'Conserved to roundoff by every method.' },
+  { key: 'momentumError', label: 'Momentum error |P - P0| / (sum of |m v|)', log: true, merge: 'max', hint: 'Conserved to roundoff by every method, so it reads at roundoff however heavy or fast the bodies are.' },
   { key: 'comDrift', label: 'Center of mass drift', log: true, merge: 'max', hint: 'How far the center of mass has moved since the start: zero when the total momentum is zero.' },
   { key: 'minSeparation', label: 'Closest pair distance', log: true, merge: 'min', hint: 'Dips explain energy spikes and shrinking IAS15 steps: a close encounter.' },
   { key: 'dt', label: 'Step size taken', log: true, merge: 'min', hint: 'Constant for fixed-step methods. IAS15 shrinks it near close encounters.' },

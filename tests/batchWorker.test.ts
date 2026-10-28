@@ -13,6 +13,7 @@ import { kepler } from './helpers';
 class FakeWorker implements WorkerLike {
   onmessage: ((event: { data: HostMessage }) => void) | null = null;
   onerror: ((event: { message?: string }) => void) | null = null;
+  onmessageerror: ((event: unknown) => void) | null = null;
   terminated = false;
   readonly received: ClientMessage[] = [];
   private readonly host = createBatchHost(
@@ -117,6 +118,57 @@ describe('BatchClient with a worker', () => {
     client.dispose();
     await expect(b.result).rejects.toBeInstanceOf(Cancelled);
     expect(worker.terminated).toBe(true);
+  });
+
+  it('replaces a worker that failed, so a later job runs instead of waiting for one that is gone', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new BatchClient(() => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker;
+    });
+    const first = client.sweep(sweepSpec(8));
+    workers[0].onerror?.({ message: 'could not load the worker' });
+    await expect(first.result).rejects.toThrow('could not load the worker');
+    expect(workers[0].terminated).toBe(true);
+
+    const second = await client.sweep(sweepSpec(3)).result;
+    expect(workers).toHaveLength(2);
+    expect(second.values).toHaveLength(3);
+  });
+
+  it('gives an error event with no message a message, and treats a message it cannot read as a failure too', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new BatchClient(() => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker;
+    });
+    const a = client.sweep(sweepSpec(8));
+    workers[0].onerror?.({ message: '' });
+    await expect(a.result).rejects.toThrow(/batch worker failed/);
+
+    const b = client.sweep(sweepSpec(8));
+    workers[1].onmessageerror?.({});
+    await expect(b.result).rejects.toThrow(/batch worker/);
+    expect(workers[1].terminated).toBe(true);
+    expect(await client.sweep(sweepSpec(3)).result).toBeDefined();
+    expect(workers).toHaveLength(3);
+  });
+
+  it('does not listen to a worker it has replaced', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new BatchClient(() => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker;
+    });
+    const a = client.sweep(sweepSpec(8));
+    workers[0].onerror?.({ message: 'first failure' });
+    await expect(a.result).rejects.toThrow('first failure');
+    const b = client.sweep(sweepSpec(4));
+    workers[0].onerror?.({ message: 'late echo from the old one' }); // must not take the new job down
+    expect((await b.result).values).toHaveLength(4);
   });
 
   it('ignores a message for a job it does not know', () => {

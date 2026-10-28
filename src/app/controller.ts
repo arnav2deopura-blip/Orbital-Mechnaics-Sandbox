@@ -143,6 +143,11 @@ export class Controller {
   runId = 0;
   /** The user changed the system (the body editor, G, softening or the preset's sliders): another preset may suit them better. */
   custom = false;
+  /**
+   * Counts the loads and edits that changed what the system is (a reset or a change of method do
+   * not): a result computed from the system as it was, a fast-forward, is not of this one once it moves on.
+   */
+  systemVersion = 0;
 
   private readonly view: ViewPort;
   private preflightIssues: Issue[] = [];
@@ -219,6 +224,7 @@ export class Controller {
     const { sim } = this;
     this.stopComparison();
     this.cancelReturn();
+    this.systemVersion++;
     const recommended = preset.recommended;
     const instance = instantiate(preset, params);
     const initial = instance.state;
@@ -319,6 +325,7 @@ export class Controller {
    * leaves the system what it was (a turn, a nudge, G) passes its `period`, so T_char does not jump.
    */
   edit(next: SystemState, recenter = true, pause = true, period?: number): void {
+    this.systemVersion++;
     this.stopComparison();
     if (pause) this.pause();
     this.cancelReturn();
@@ -345,6 +352,21 @@ export class Controller {
     this.restartHistory();
     this.restartChaos();
     this.newRun();
+  }
+
+  /**
+   * Carries on from the state a fast-forward ended in (time, positions and velocities), unless the
+   * system has changed since it began (`version` is what systemVersion was then): the result is
+   * of another system and would put its positions into this one. Returns whether it was loaded.
+   */
+  continueFrom(final: { t: number; x: Float64Array; v: Float64Array }, version: number): boolean {
+    if (version !== this.systemVersion) return false;
+    const next = snapshot(this.sim.state);
+    next.t = final.t;
+    next.x.set(final.x);
+    next.v.set(final.v);
+    this.edit(next, false);
+    return true;
   }
 
   /** Fills the body editor's buffer from the current state. */

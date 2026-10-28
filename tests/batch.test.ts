@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  advanceThrough,
   Cancelled,
   convergenceSweep,
   fastForward,
@@ -9,6 +10,7 @@ import {
   quietContext,
 } from '../src/sim/batch';
 import type { BatchContext } from '../src/sim/batch';
+import { Simulation } from '../src/sim/simulation';
 import { createState } from '../src/sim/state';
 import { hierarchical, kepler, pythagorean } from './helpers';
 
@@ -218,5 +220,55 @@ describe('lyapunov', () => {
     const before = Array.from(s.x);
     await lyapunov({ state: s, duration: 6, period: 6.3, intervals: 10 });
     expect(Array.from(s.x)).toEqual(before);
+  });
+});
+
+describe('advanceThrough', () => {
+  it('rides out the stops a live run would pause at, which a headless run has no use for', () => {
+    const { s, T } = kepler(0.5);
+    const sim = new Simulation(s, { integrator: 'leapfrog', params: { dt: T / 1000 } });
+    sim.encounterRadius = 10; // inside it from the start
+    sim.stopOnEncounter = true;
+    const stopped = sim.advanceTo(1, Infinity);
+    expect(stopped.status).toBe('event');
+    expect(sim.state.t).toBeLessThan(1);
+
+    expect(advanceThrough(sim, 1)).toBe(true);
+    expect(sim.state.t).toBeGreaterThanOrEqual(1);
+  });
+
+  it('says false when the run failed', () => {
+    const s = kepler().s;
+    s.x[0] = NaN;
+    const sim = new Simulation(s, { integrator: 'ias15', params: { dt: 0.01 } });
+    expect(advanceThrough(sim, 1)).toBe(false);
+    expect(sim.failure).not.toBeNull();
+  });
+});
+
+describe('batch jobs on a run that fails', () => {
+  const onTop = () => {
+    const s = createState();
+    s.m.set([1, 1, 1]);
+    s.x.set([0, 0, 0, 0, 0, 0, 3, 0, 0]); // two bodies on the same spot
+    s.v.set([0, 0, 0, 0, 0, 0, 0, 1, 0]);
+    return s;
+  };
+
+  it('says so in the Lyapunov result instead of looking like a run with no chaos', async () => {
+    const r = await lyapunov({ state: onTop(), duration: 5, period: 5, intervals: 10 });
+    expect(r.failure).toMatch(/integration failed/);
+    expect(r.times.length).toBe(0);
+    expect(Number.isNaN(r.final)).toBe(true);
+  });
+
+  it('has no failure to report for a run that went through', async () => {
+    const r = await lyapunov({ state: pythagorean(), duration: 5, period: 10.9, intervals: 10 });
+    expect(r.failure).toBeNull();
+    expect(r.times.length).toBe(10);
+  });
+
+  it('refuses to measure a sweep against a reference run that failed', async () => {
+    await expect(convergenceSweep({ state: onTop(), integrator: 'rk4', duration: 2, values: [0.1, 0.05] })).rejects.toThrow(/reference run failed/);
   });
 });

@@ -11,6 +11,8 @@ export interface WorkerLike {
   postMessage(message: ClientMessage): void;
   onmessage: ((event: { data: HostMessage }) => void) | null;
   onerror: ((event: { message?: string }) => void) | null;
+  /** A message that could not be read. Optional: only the real Worker has it. */
+  onmessageerror?: ((event: unknown) => void) | null;
   terminate(): void;
 }
 
@@ -72,13 +74,26 @@ export class BatchClient {
   private ensureWorker(): WorkerLike {
     if (this.worker) return this.worker;
     const worker = this.create();
-    worker.onmessage = (event) => this.receive(event.data);
-    worker.onerror = (event) => {
-      for (const pending of this.pending.values()) pending.reject(new Error(event.message ?? 'the batch worker failed'));
-      this.pending.clear();
+    // Events from a worker that has been replaced are not this client's business any more.
+    worker.onmessage = (event) => {
+      if (this.worker === worker) this.receive(event.data);
     };
+    worker.onerror = (event) => this.fail(worker, event.message || 'the batch worker failed');
+    worker.onmessageerror = () => this.fail(worker, 'the batch worker sent a message that could not be read');
     this.worker = worker;
     return worker;
+  }
+
+  /**
+   * The worker is no use any more (its script did not load, or it crashed): ends it, fails the jobs it
+   * had, and forgets it, so that the next job starts a new one instead of posting to a dead one.
+   */
+  private fail(worker: WorkerLike, reason: string): void {
+    if (this.worker !== worker) return;
+    worker.terminate();
+    this.worker = null;
+    for (const pending of this.pending.values()) pending.reject(new Error(reason));
+    this.pending.clear();
   }
 
   private receive(message: HostMessage): void {

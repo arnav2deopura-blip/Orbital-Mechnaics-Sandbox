@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignedData } from '../src/ui/align';
+import { alignedData, forLogAxis } from '../src/ui/align';
 
 describe('alignedData', () => {
   it('puts series with different x on one sorted axis, with null where a series has no point', () => {
@@ -21,5 +21,28 @@ describe('alignedData', () => {
   it('takes typed arrays, and gives just the axis for no series', () => {
     expect(alignedData([{ label: 'a', color: '#fff', x: Float64Array.of(1, 2), y: Float64Array.of(5, 6) }])[1]).toEqual([5, 6]);
     expect(alignedData([])).toEqual([[]]);
+  });
+});
+
+describe('forLogAxis', () => {
+  it('leaves NaN as a gap, so a run that failed or a comparison that stopped is not drawn as a perfect one', () => {
+    expect(forLogAxis([1e-3, NaN, 1e-5])).toEqual([1e-3, null, 1e-5]);
+  });
+
+  it('leaves out a zero before the first positive value (the first sample is measured against itself), but not one after', () => {
+    expect(forLogAxis([0, 0, 1e-12, 0, 1e-9], 1e-18)).toEqual([null, null, 1e-12, 1e-18, 1e-9]);
+  });
+
+  it('draws a series that is all zero at the floor, as there is nothing else to show', () => {
+    expect(forLogAxis([0, 0, 0], 1e-18)).toEqual([1e-18, 1e-18, 1e-18]);
+  });
+
+  it('pulls a value below the floor up to it and keeps the rest', () => {
+    expect(forLogAxis([1e-30, 1e-6], 1e-18)).toEqual([1e-18, 1e-6]);
+  });
+
+  it('is accepted by alignedData, which drops the gaps', () => {
+    const data = alignedData([{ label: 'a', color: '#000', x: [1, 2, 3], y: forLogAxis([NaN, 1e-3, 1e-4]) as number[] }]);
+    expect(data[0]).toEqual([2, 3]);
   });
 });

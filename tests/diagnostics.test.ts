@@ -9,7 +9,7 @@ import {
   momentumError,
   systemSize,
 } from '../src/sim/diagnostics';
-import { createState } from '../src/sim/state';
+import { createState, snapshot } from '../src/sim/state';
 import type { SystemState } from '../src/sim/types';
 import { angularMomentum, energy, kepler, lScale, makeRng, momentum, pythagorean } from './helpers';
 
@@ -152,7 +152,27 @@ describe('createReference', () => {
     d.L[2] += 4 * 1e-3 * ref.Lscale;
     expect(angularMomentumError(d, ref)).toBeCloseTo(5e-3, 12);
     d.P[1] += 2e-9;
-    expect(momentumError(d, ref)).toBeCloseTo(2e-9, 18);
+    expect(momentumError(d, ref)).toBeCloseTo(2e-9 / ref.Pscale, 18);
+  });
+
+  it('measures the momentum error against the momenta of the bodies, so it reads the same at any scale', () => {
+    const { s } = kepler();
+    const big = snapshot(s);
+    for (let i = 0; i < 3; i++) big.m[i] *= 1e6; // the same orbit with a million times the momentum
+    for (const state of [s, big]) {
+      const ref = createReference(state);
+      const d = createDiagnostics();
+      measure(state, d);
+      expect(ref.Pscale).toBeGreaterThan(0);
+      d.P[0] += 1e-9 * ref.Pscale;
+      expect(momentumError(d, ref)).toBeCloseTo(1e-9, 18);
+    }
+  });
+
+  it('has a momentum scale for a system at rest (Pythagorean), from the energy as the angular momentum does', () => {
+    const ref = createReference(pythagorean());
+    expect(ref.Pscale).toBeGreaterThan(0);
+    expect(Number.isFinite(ref.Pscale)).toBe(true);
   });
 });
 

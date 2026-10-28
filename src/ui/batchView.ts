@@ -1,16 +1,15 @@
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { FastForwardResult, LyapunovResult, SweepResult } from '../sim/batch';
-import { alignedData } from './align';
+import { alignedData, forLogAxis } from './align';
 import { decadeSplits } from './axes';
+import { lyapunovNote, sweepFailureNote } from './batchNotes';
 import { INK, INK_3, RULE, RULE_STRONG } from './palette';
 import type { PlotSeries } from './align';
 
 // The results of the batch jobs (plan §9): an overlay with log-log plots for the sweeps, the
 // history of a fast-forward, and the Lyapunov estimate.
 
-/** A log axis cannot show zero: an error that is exactly zero (or NaN) is drawn here. */
-const FLOOR = 1e-18;
 
 export interface SweepEntry {
   label: string;
@@ -68,7 +67,7 @@ export class BatchView {
       yLabel: 'position error',
       logX: true,
       logY: true,
-      series: stepped.map((e) => ({ label: e.label, color: e.color, x: e.result.values, y: clampAll(e.result.errors) })),
+      series: stepped.map((e) => ({ label: e.label, color: e.color, x: e.result.values, y: forLogAxis(e.result.errors) })),
     });
     this.legend(
       stepped.map((e) => {
@@ -85,8 +84,13 @@ export class BatchView {
       yLabel: 'position error',
       logX: true,
       logY: true,
-      series: entries.map((e) => ({ label: e.label, color: e.color, x: e.result.forceEvals, y: clampAll(e.result.errors) })),
+      series: entries.map((e) => ({ label: e.label, color: e.color, x: e.result.forceEvals, y: forLogAxis(e.result.errors) })),
     });
+    const failed = sweepFailureNote(
+      entries.reduce((sum, e) => sum + e.result.failures, 0),
+      entries.reduce((sum, e) => sum + e.result.values.length, 0),
+    );
+    if (failed) this.note(failed);
     const references = new Set(entries.map((e) => e.result.reference));
     this.note(
       `Error is measured against ${references.has('exact') && !references.has('ias15') ? 'the exact Kepler solution' : references.has('exact') ? 'the exact Kepler solution or IAS15 at a tight tolerance' : 'IAS15 at a tight tolerance (1e-10)'}. ` +
@@ -99,7 +103,7 @@ export class BatchView {
     this.open('Fast-forward');
     const x = result.elapsed;
     const one = (title: string, y: Float64Array, color: string): void =>
-      this.plot({ title, xLabel: 'elapsed time', yLabel: '', logX: false, logY: true, series: [{ label: title, color, x, y: clampAll(y) }] });
+      this.plot({ title, xLabel: 'elapsed time', yLabel: '', logX: false, logY: true, series: [{ label: title, color, x, y: forLogAxis(y) }] });
     one('Energy error', result.energyError, INK);
     one('Angular momentum error', result.angularMomentumError, INK);
     one('Separation of the closest pair', result.minSeparation, INK);
@@ -125,12 +129,7 @@ export class BatchView {
       logY: false,
       series: [{ label: 'estimate', color: INK, x: result.times, y: result.exponent }],
     });
-    this.note(
-      result.final > 0
-        ? `The estimate ends at ${result.final.toPrecision(3)} per unit time: a Lyapunov time of about ${result.lyapunovTime.toPrecision(3)}. ` +
-            'A regular orbit gives an estimate that keeps falling toward zero (like ln t / t); chaos gives one that levels off above it.'
-        : 'The estimate is not positive: no sign of chaos over this run.',
-    );
+    this.note(lyapunovNote(result));
   }
 
   private open(title: string): void {
@@ -194,9 +193,4 @@ export class BatchView {
     );
     this.plots.push(plot);
   }
-}
-
-/** Errors for a log axis: zero and NaN become the floor. */
-function clampAll(values: ArrayLike<number>): number[] {
-  return Array.from(values, (v) => Math.max(v, FLOOR) || FLOOR);
 }
