@@ -85,6 +85,47 @@ svg {
   min-height: 0;
 }
 
+/* Under the least size the page scrolls, and says so: a line that stays in view at the left edge, and a
+   scrollbar that can be seen (the thin, nearly transparent one is easy to take for a clipped page). */
+.narrow-note {
+  display: none;
+  position: sticky;
+  left: 0;
+  flex: none;
+  width: 100vw;
+  padding: 7px 16px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.35;
+  z-index: 40;
+}
+
+@media (max-width: 1199px), (max-height: 679px) {
+  .narrow-note {
+    display: block;
+  }
+
+  html {
+    scrollbar-width: auto;
+    scrollbar-color: var(--ink-3) var(--ground);
+  }
+}
+
+.learn-failed {
+  max-width: 34rem;
+  margin: 0;
+  padding: 32px 24px;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.learn-failed button {
+  margin-left: 8px;
+}
+
 .shell {
   position: relative;
   display: flex;

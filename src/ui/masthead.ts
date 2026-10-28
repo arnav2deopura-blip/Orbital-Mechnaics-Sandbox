@@ -29,6 +29,17 @@ function sketch(panel: boolean, charts: boolean, tall: boolean): string {
   );
 }
 
+/**
+ * A line across the top of the window, shown only when the window is smaller than the page is laid out
+ * for (see shell.css): the page then scrolls, and without a word it looks like something is cut off.
+ */
+export function createNarrowNote(): HTMLElement {
+  const note = el('div', 'narrow-note');
+  note.setAttribute('role', 'note');
+  note.textContent = 'This page is laid out for a window at least 1200 by 680 pixels. Enlarge the window, or scroll to see the rest.';
+  return note;
+}
+
 export interface Masthead {
   root: HTMLElement;
   /** Shows which page is open, and the Layout menu only on the simulator. */

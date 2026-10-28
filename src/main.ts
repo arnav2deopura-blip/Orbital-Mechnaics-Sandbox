@@ -10,7 +10,7 @@ import './ui/tokens.css';
 import './ui/shell.css';
 import { BatchClient } from './app/batch';
 import { Controller } from './app/controller';
-import { isPageHash, onRoute } from './app/router';
+import { isPageHash, onRoute, parseRoute } from './app/router';
 import type { Route } from './app/router';
 import { applyState, decodeShare, linkProblem, runLinks } from './app/urlState';
 import { FIGURE_EIGHT } from './presets/figureEight';
@@ -18,7 +18,7 @@ import { SceneView } from './render/scene';
 import { createBanner } from './ui/banner';
 import { BatchView } from './ui/batchView';
 import { Charts, expectedEnergyBehavior } from './ui/charts';
-import { createMasthead } from './ui/masthead';
+import { createMasthead, createNarrowNote } from './ui/masthead';
 import { REFRESH_MS } from './ui/modules/common';
 import { bodiesModule, compareModule, perturbModule } from './ui/modules/bodies';
 import { batchModule, exportModule, numbersModule, performanceModule } from './ui/modules/data';
@@ -113,7 +113,7 @@ controller.onBodyCountChange(() => {
 const refreshBar = createTopBar(shell, controller, charts);
 const refreshBanner = createBanner(shell, controller, prefs);
 const masthead = createMasthead(shell, charts);
-root.append(masthead.root, simPage, learnPage);
+root.append(createNarrowNote(), masthead.root, simPage, learnPage);
 
 // ---- pages ---------------------------------------------------------------------------------
 let simActive = true;
@@ -137,10 +137,24 @@ const showRoute = (route: Route): void => {
     learnPage.hidden = false;
     setSimActive(false);
     learn ??= import('./learn/page').then((m) => m.mountLearn(learnPage));
-    void learn.then((page) => {
-      if (route.section) page.show(route.section, !changed && !first);
-      else if (changed) learnPage.scrollTop = learnScroll;
-    });
+    learn.then(
+      (page) => {
+        if (route.section) page.show(route.section, !changed && !first);
+        else if (changed) learnPage.scrollTop = learnScroll;
+      },
+      () => {
+        // The page did not load (a lost connection, say): forget the failure, so that asking again tries again.
+        learn = null;
+        const notice = el('p', 'learn-failed');
+        notice.textContent = 'The Learn page could not be loaded. Check your connection and try again.';
+        const retry = el('button', 'bar-button');
+        retry.type = 'button';
+        retry.textContent = 'Try again';
+        retry.addEventListener('click', () => showRoute(parseRoute(location.hash)));
+        notice.appendChild(retry);
+        learnPage.replaceChildren(notice);
+      },
+    );
   } else {
     if (shownPage === 'learn') learnScroll = learnPage.scrollTop;
     learnPage.hidden = true;

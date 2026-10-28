@@ -20,7 +20,7 @@ Put $\mathbf r=\mathbf r_2-\mathbf r_1$ and $M=m_1+m_2$. The two equations of mo
 
 [Try it: two bodies on an exact Kepler orbit](index.html#preset=kepler-orbit)
 
-[Try it: a circular binary, at the same separation at every moment](index.html#preset=circular-binary)
+[Try it: a circular binary, with the same separation at every moment](index.html#preset=circular-binary)
 
 [Try it: a hyperbolic flyby, the one two-body orbit that does not close](index.html#preset=hyperbolic-flyby)
 

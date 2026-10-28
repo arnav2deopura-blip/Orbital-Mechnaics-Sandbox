@@ -8,10 +8,30 @@ import { BODY_COLORS } from './bodies';
 /** How far in from the edge the arrows sit, in CSS pixels. */
 const INSET = 22;
 
+/**
+ * Where a point (relative to the render origin) sits as the camera sees it: in normalized device
+ * coordinates, x to the right and y up, so |x| and |y| above 1 is outside the picture. `visible` is
+ * whether it is drawn at all: in front of the camera, between the near and far planes, and inside the
+ * picture. A body that is not visible gets an arrow in the direction x, y. `scratch` is only workspace.
+ */
+export function arrowTarget(point: THREE.Vector3, camera: THREE.Camera, scratch: THREE.Vector3): { visible: boolean; x: number; y: number } {
+  scratch.copy(point).applyMatrix4(camera.matrixWorldInverse);
+  // A perspective camera projects what is behind it mirrored through the center (the sign of w), and
+  // the depth z of clip space says nothing about which side that is: ask the depth in the camera's own frame.
+  // An orthographic one does not mirror.
+  const mirrored = (camera as THREE.PerspectiveCamera).isPerspectiveCamera === true && scratch.z > 0;
+  scratch.applyMatrix4(camera.projectionMatrix);
+  const x = mirrored ? -scratch.x : scratch.x;
+  const y = mirrored ? -scratch.y : scratch.y;
+  const visible = !mirrored && scratch.z >= -1 && scratch.z <= 1 && Math.abs(x) <= 1 && Math.abs(y) <= 1;
+  return { visible, x, y };
+}
+
 export class OffscreenMarkers {
   private readonly markers: HTMLDivElement[];
   private readonly shown = [false, false, false];
   private readonly point = new THREE.Vector3();
+  private readonly scratch = new THREE.Vector3();
 
   constructor(host: HTMLElement) {
     this.markers = BODY_COLORS.map((color, i) => {
@@ -37,13 +57,11 @@ export class OffscreenMarkers {
         this.show(i, false);
         continue;
       }
-      p.set(x[3 * i] - o[0], x[3 * i + 1] - o[1], x[3 * i + 2] - o[2]).project(camera);
-      // project() mirrors points behind the camera through the center: flip them back so the arrow points the right way.
-      const behind = p.z > 1;
-      let nx = behind ? -p.x : p.x;
-      let ny = behind ? -p.y : p.y;
-      const visible = !behind && Math.abs(nx) <= 1 && Math.abs(ny) <= 1;
-      if (visible) {
+      p.set(x[3 * i] - o[0], x[3 * i + 1] - o[1], x[3 * i + 2] - o[2]);
+      const target = arrowTarget(p, camera, this.scratch);
+      let nx = target.x;
+      let ny = target.y;
+      if (target.visible) {
         this.show(i, false);
         continue;
       }
