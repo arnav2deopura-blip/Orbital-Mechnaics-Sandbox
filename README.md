@@ -1,5 +1,7 @@
 # Three-body integrator explorer
 
+**Live site: <https://arnav2deopura-blip.github.io/Orbital-Mechnaics-Sandbox/>** (best viewed on a desktop browser)
+
 An interactive, in-browser sandbox for the gravitational three-body problem (and, with one switch,
 the exactly solvable two-body problem) and the numerical methods used to follow it: **Euler** (explicit and symplectic), **leapfrog**, **RK4**,
 **Wisdom-Holman** and **IAS15**. It runs in three dimensions, with a height for every body, and shows
@@ -27,8 +29,10 @@ npm run lint       # eslint
 npm run build      # a static site in dist/
 ```
 
-The build is a plain static site with relative URLs, so `dist/` can be put on any static host (GitHub
-Pages, Netlify, a school server) at any path. `.github/workflows/ci.yml` runs the checks above.
+The build is a plain static site with relative URLs, so `dist/` can be put on any static host (Netlify,
+a school server) at any path. The live site is served by GitHub Pages: `.github/workflows/pages.yml`
+builds `dist/` and deploys it on every push to `main` (Settings, Pages, Source: GitHub Actions).
+`.github/workflows/ci.yml` runs the checks above.
 
 ## What is in the simulator
 

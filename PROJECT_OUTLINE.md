@@ -739,7 +739,7 @@ src/
 - **Allocation:** the step loop retains nothing but makes a little short-lived garbage per step (boxed doubles); measured, not zero.
 - **Divergence in comparison mode** is measured once per frame, so at very high speed several samples share one value.
 - **Desktop-only:** no phone/tablet layout.
-- **Hosting target** is still open (comment in `vite.config.ts`); the build is host-agnostic.
+- **Hosting** is GitHub Pages (`.github/workflows/pages.yml` builds `dist/` on every push to `main`); the build stays host-agnostic (relative `base`, hash routes).
 - **Bodies never merge** (a collision is just a close encounter with a user-chosen radius); changing N would break Wisdom–Holman's Jacobi setup.
 - **Wisdom–Holman cannot use softening**; choosing WH removes it.
 - **A massless pair** (two test particles) has no period or COM; such systems fall back to defaults (T_char = 1, plain-mean COM).

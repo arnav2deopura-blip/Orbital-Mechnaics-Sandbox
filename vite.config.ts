@@ -5,7 +5,8 @@ import { defineConfig } from 'vitest/config';
 const page = (file: string): string => fileURLToPath(new URL(file, import.meta.url));
 
 export default defineConfig({
-  // Relative asset URLs: the build works on any static host or sub-path (hosting target is still open, plan §15.4).
+  // Relative asset URLs: the build works on any static host or sub-path. It is deployed to GitHub Pages
+  // (project site at /<repo>/) by .github/workflows/pages.yml, so keep this relative.
   base: './',
   // Multi-page app: unknown routes are 404s, not an index.html fallback. `/learn` serves learn.html.
   appType: 'mpa',
